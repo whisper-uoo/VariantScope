@@ -1,0 +1,16 @@
+{
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "records": 1000000,
+  "file_bytes": 46102182,
+  "dataset_id": 5,
+  "import_seconds": 25.633303209,
+  "records_per_second": 39011.74935772204,
+  "query_runs": 25,
+  "query_ms_median": 81.87500000000014,
+  "query_ms_p95": 112.86458300000035,
+  "stats_ms": 7474.359708000002,
+  "java_rss_peak_kib": 372496,
+  "java_rss_initial_kib": 277152,
+  "sample_interval_seconds": 0.1,
+  "note": "Synthetic workload; warm sequential local HTTP queries; single client; RSS includes JVM native memory; not a production capacity claim."
+}

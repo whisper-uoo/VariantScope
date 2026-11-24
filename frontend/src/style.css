@@ -687,3 +687,7 @@ pre {
     height: 250px;
   }
 }
+/* Grid children must shrink below canvas intrinsic dimensions on narrow screens. */
+.chart, .plot { min-width: 0; }
+.sort label { white-space: nowrap; }
+@media (max-width: 780px) { .charts { grid-template-columns: minmax(0, 1fr); } }

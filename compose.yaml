@@ -1,0 +1,35 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: variantscope
+      MYSQL_USER: variantscope
+      MYSQL_PASSWORD: ${DB_PASSWORD:-variantscope}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-dev-root}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  backend:
+    build: ./backend
+    environment:
+      DB_URL: jdbc:mysql://db:3306/variantscope?rewriteBatchedStatements=true
+      DB_USER: variantscope
+      DB_PASSWORD: ${DB_PASSWORD:-variantscope}
+      JAVA_TOOL_OPTIONS: -Xmx512m
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - backend
+volumes:
+  mysql-data:

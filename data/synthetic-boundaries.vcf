@@ -1,0 +1,14 @@
+##fileformat=VCFv4.2
+##source=VariantScope_SYNTHETIC_BOUNDARY_FIXTURE
+##reference=SYNTHETIC_NOT_A_REAL_ASSEMBLY
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SYNTHETIC
+1	100	.	A	G	60	PASS	DP=20	GT	0/1
+1	200	.	A	T	10	q20	DP=5	GT	1|0
+1	300	.	A	AT	.	.	.	GT	./.
+2	400	.	AT	A	90	PASS	DP=30	GT	1/1
+2	500	.	A	G,T	20	PASS	.	GT	1/2
+2	600	.	A	<DEL>	30	PASS	.	GT	0/1
+2	700	.	AT	GC	50	PASS	.	GT	0/1
+X	800	.	N	A	.	.	.	GT	.
