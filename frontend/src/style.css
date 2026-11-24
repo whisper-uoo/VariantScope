@@ -2443,3 +2443,27 @@ td small {
     max-height: 560px;
   }
 }
+
+/* Keep FILTER from collapsing and inflating scientific rows on narrow screens. */
+.variant-table {
+  min-width: 900px;
+}
+.variant-table th:nth-child(8) {
+  width: 100px;
+}
+.filter-value {
+  white-space: nowrap;
+}
+.scroll-hint {
+  display: none;
+}
+@media (max-width: 720px) {
+  .scroll-hint {
+    display: block;
+    padding: 6px 13px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    background: #fcfdfc;
+  }
+}

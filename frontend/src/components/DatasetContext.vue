@@ -16,6 +16,7 @@ const emit = defineEmits<{ select: [number | undefined] }>();
         <label for="active-dataset">当前数据集</label>
         <select
           id="active-dataset"
+          :title="current?.name"
           :value="selected ?? ''"
           @change="
             emit(

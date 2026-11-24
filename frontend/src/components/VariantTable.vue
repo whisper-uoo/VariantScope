@@ -69,6 +69,7 @@ const emit = defineEmits<{
         </select>
       </div>
     </div>
+    <p class="scroll-hint">左右滑动查看全部字段</p>
     <div
       class="table-scroll variant-scroll"
       tabindex="0"

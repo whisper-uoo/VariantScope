@@ -165,7 +165,8 @@ function submit() {
       </div>
       <span class="subtle-label">最近 200 个</span>
     </header>
-    <div class="table-scroll">
+    <p class="scroll-hint">左右滑动查看统计与管理操作</p>
+    <div class="table-scroll" tabindex="0" aria-label="可横向滚动的数据集表格">
       <table>
         <thead>
           <tr>

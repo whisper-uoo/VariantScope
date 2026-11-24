@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
-import Chart from "./Chart.vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  defineAsyncComponent,
+} from "vue";
+const Chart = defineAsyncComponent(() => import("./Chart.vue"));
 import UiIcon from "./components/UiIcon.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import DatasetContext from "./components/DatasetContext.vue";
@@ -104,7 +111,14 @@ const readyCount = computed(
   () => datasets.value.filter((x) => x.status === "READY").length,
 );
 async function api(url: string, options?: RequestInit) {
-  const r = await fetch("/api" + url, options);
+  let r: Response;
+  try {
+    r = await fetch("/api" + url, options);
+  } catch (e) {
+    if (e instanceof TypeError)
+      throw new Error("无法连接数据服务，请检查后端连接后重试");
+    throw e;
+  }
   if (!r.ok) {
     const x = await r
       .json()
@@ -149,6 +163,17 @@ async function load(onlyRows = false) {
     }
   } finally {
     if (gen === generation) loading.value = false;
+  }
+}
+async function retry() {
+  error.value = "";
+  loading.value = true;
+  try {
+    await refreshList();
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    loading.value = false;
   }
 }
 async function refreshList() {
@@ -394,6 +419,9 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
             <strong>操作未完成</strong>
             <p>{{ error }}</p>
           </div>
+          <button class="text-button" :disabled="busy" @click="retry">
+            刷新数据
+          </button>
           <button
             class="icon-button"
             aria-label="关闭错误提示"

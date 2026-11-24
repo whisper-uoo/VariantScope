@@ -135,3 +135,39 @@ describe("analysis scope regression", () => {
     expect(wrapper.find(".metric-summary").exists()).toBe(false);
   });
 });
+
+describe('request lifetime and recovery', () => {
+  it('ignores an in-flight response after the dataset is deselected', async () => {
+    await start();
+    let resolveStats!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (String(input).includes('/stats')) {
+        return await new Promise(resolve => { resolveStats = resolve; }) as Response;
+      }
+      return { ok: true, text: async () => JSON.stringify({ total: 2, items: [variant] }) } as Response;
+    });
+    await wrapper.get('.filter-grid').trigger('submit');
+    await wrapper.get('#active-dataset').setValue('');
+    resolveStats({ ok: true, text: async () => JSON.stringify(stats) } as Response);
+    await flushPromises();
+    expect(wrapper.find('.metric-summary').exists()).toBe(false);
+    expect(wrapper.find('.activity').exists()).toBe(false);
+    expect(wrapper.text()).toContain('从一份 VCF 开始探索');
+  });
+  it('offers a safe data refresh after a network failure', async () => {
+    await start();
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
+    await wrapper.get('.filter-grid').trigger('submit');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('无法连接数据服务');
+    vi.mocked(fetch).mockImplementation(async input => {
+      const url = String(input);
+      return {ok:true,text:async()=>JSON.stringify(url.endsWith('/datasets')?[dataset(1),dataset(2)]:url.includes('/stats')?stats:{total:2,items:[variant]})} as Response;
+    });
+    const retry = wrapper.findAll('button').find(b => b.text() === '刷新数据')!;
+    await retry.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1);
+  });
+});
