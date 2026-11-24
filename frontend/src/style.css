@@ -68,7 +68,7 @@ label {
   flex-direction: column;
   gap: 6px;
   color: #657784;
-  font-size: 13px;
+  font-size: 14px;
 }
 h1,
 h2,
@@ -237,7 +237,7 @@ main {
 }
 .pagehead .muted {
   margin-top: 6px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .panel,
 .chart {

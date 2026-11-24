@@ -1,6 +1,21 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
-import * as echarts from "echarts";
+import * as echarts from "echarts/core";
+import { BarChart, PieChart } from "echarts/charts";
+import {
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+} from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+echarts.use([
+  BarChart,
+  PieChart,
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+  CanvasRenderer,
+]);
 const p = defineProps<{ title: string; data: any[]; kind?: string }>();
 const emit = defineEmits<{ select: [string] }>();
 const el = ref<HTMLElement>();
@@ -12,6 +27,16 @@ function render() {
   chart.setOption(
     {
       color: ["#227c80", "#67aba3", "#a0c9bc", "#d0ab64", "#8395b5"],
+      dataZoom:
+        !pie && p.data.length > 20
+          ? [
+              {
+                type: "slider",
+                start: 0,
+                end: Math.min(100, 2000 / p.data.length),
+              },
+            ]
+          : [],
       tooltip: { trigger: pie ? "item" : "axis" },
       grid: { left: 55, right: 20, top: 25, bottom: 60 },
       xAxis: pie

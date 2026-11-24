@@ -44,13 +44,17 @@ const filters = ref({
 let generation = 0;
 function query() {
   return new URLSearchParams(
-    Object.entries(filters.value).filter(([, v]) => v),
+    Object.entries(filters.value).filter(
+      ([k, v]) => v && !["sort", "direction"].includes(k),
+    ),
   ).toString();
 }
 async function api(url: string, options?: RequestInit) {
   const response = await fetch("/api" + url, options);
   if (!response.ok) {
-    let x = await response.json();
+    let x = await response
+      .json()
+      .catch(() => ({ message: "服务暂不可用，请检查后端连接" }));
     throw Error(x.message || "请求失败");
   }
   return response.status === 204
@@ -77,7 +81,7 @@ async function load() {
     const [s, v] = await Promise.all([
       api(`/datasets/${selected.value}/stats?${query()}`),
       api(
-        `/datasets/${selected.value}/variants?${query()}&page=${page.value}&size=25`,
+        `/datasets/${selected.value}/variants?${query()}&page=${page.value}&size=25&sort=${filters.value.sort}&direction=${filters.value.direction}`,
       ),
     ]);
     if (gen === generation) {
@@ -194,8 +198,7 @@ onMounted(() => list().catch((e) => (error.value = e.message)));
           :class="{ active: view === n }"
           @click="view = n"
         >
-          <span>{{ ["◫", "▤", "≡", "◷", "ⓘ"][i] }}</span
-          >{{ n }}
+          <span>{{ ["◫", "▤", "≡", "◷", "ⓘ"][i] }}</span>{{ n }}
         </button>
       </nav>
       <div class="aside-foot">
@@ -312,8 +315,9 @@ onMounted(() => list().catch((e) => (error.value = e.message)));
                 <tbody>
                   <tr v-for="d in datasets">
                     <td>
-                      <b>{{ d.name }}</b
-                      ><small>{{ new Date(d.created).toLocaleString() }}</small
+                      <b>{{ d.name }}</b><small>{{
+                        new Date(d.created).toLocaleString()
+                      }}</small
                       ><small class="error">{{ d.error }}</small>
                     </td>
                     <td>
@@ -613,8 +617,8 @@ onMounted(() => list().catch((e) => (error.value = e.message)));
                   <button @click="view = '数据集管理'">管理全部数据集</button>
                 </header>
                 <div class="recent" v-for="d in datasets.slice(0, 4)">
-                  <b>{{ d.name }}</b
-                  ><span>{{ d.record_count.toLocaleString() }} 条记录</span
+                  <b>{{ d.name }}</b><span
+                    >{{ d.record_count.toLocaleString() }} 条记录</span
                   ><span class="badge">{{ d.status }}</span
                   ><span class="muted">{{
                     new Date(d.created).toLocaleString()
