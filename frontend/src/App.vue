@@ -1,87 +1,138 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import Chart from "./Chart.vue";
-type Dataset = {
-  id: number;
-  name: string;
-  status: string;
-  record_count: number;
-  reference_name: string | null;
-  samples: string;
-  created: string;
-  error: string | null;
-  metadata: string;
-};
-const nav = ["概览工作台", "数据集管理", "变异浏览", "统计分析", "项目说明"];
-const view = ref("概览工作台");
+import UiIcon from "./components/UiIcon.vue";
+import StatusBadge from "./components/StatusBadge.vue";
+import DatasetContext from "./components/DatasetContext.vue";
+import MetricSummary from "./components/MetricSummary.vue";
+import FilterBar from "./components/FilterBar.vue";
+import VariantTable from "./components/VariantTable.vue";
+import VariantDetail from "./components/VariantDetail.vue";
+import UiDialog from "./components/UiDialog.vue";
+import DatasetManager from "./views/DatasetManager.vue";
+import type { Dataset, Statistics, Variant, Filters } from "./lib/domain";
+import { emptyFilters, filterQuery, number, dateTime } from "./lib/domain";
+const pages = [
+  {
+    id: "overview",
+    label: "概览工作台",
+    icon: "overview",
+    description: "从数据全貌，到每一条变异记录。",
+  },
+  {
+    id: "datasets",
+    label: "数据集管理",
+    icon: "datasets",
+    description: "管理导入文件、数据来源与解析状态。",
+  },
+  {
+    id: "variants",
+    label: "变异浏览",
+    icon: "variants",
+    description: "组合筛选与逐条核验，保留完整的数据上下文。",
+  },
+  {
+    id: "analysis",
+    label: "统计分析",
+    icon: "analysis",
+    description: "在同一个筛选范围内，观察分布与质量特征。",
+  },
+  {
+    id: "about",
+    label: "项目说明",
+    icon: "info",
+    description: "理解数据来源、指标口径与分析边界。",
+  },
+];
+function hashPage() {
+  const id = location.hash.slice(1);
+  return pages.some((x) => x.id === id) ? id : "overview";
+}
+const view = ref(hashPage());
+const currentPage = computed(() => pages.find((x) => x.id === view.value)!);
+function navigate(id: string) {
+  view.value = id;
+  location.hash = id;
+  success.value = "";
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+function syncHash() {
+  view.value = hashPage();
+}
 const datasets = ref<Dataset[]>([]);
 const selected = ref<number>();
 const current = computed(() =>
   datasets.value.find((x) => x.id === selected.value),
 );
-const stats = ref<any>();
-const rows = ref<any[]>([]);
+const stats = ref<Statistics>();
+const rows = ref<Variant[]>([]);
 const total = ref(0);
 const page = ref(0);
-const detail = ref<any>();
+const detail = ref<Variant>();
+const pendingDelete = ref<Dataset>();
+const initializing = ref(true);
+const loading = ref(false);
+const operation = ref(false);
+const busy = computed(
+  () => initializing.value || loading.value || operation.value,
+);
 const error = ref("");
-const busy = ref(false);
+const success = ref("");
 const progress = ref("");
-const name = ref("");
-const reference = ref("");
-const file = ref<File>();
-const filters = ref({
-  chrom: "",
-  start: "",
-  end: "",
-  type: "",
-  minQual: "",
-  filter: "",
-  variantId: "",
-  sort: "id",
-  direction: "asc",
-});
+const draft = ref<Filters>(emptyFilters());
+const applied = ref<Filters>(emptyFilters());
+const sort = ref("id");
+const direction = ref("asc");
 let generation = 0;
-function query() {
-  return new URLSearchParams(
-    Object.entries(filters.value).filter(
-      ([k, v]) => v && !["sort", "direction"].includes(k),
-    ),
-  ).toString();
-}
+const query = computed(() => filterQuery(applied.value));
+const exportUrl = computed(
+  () => `/api/datasets/${selected.value}/export?${query.value}`,
+);
+const positions = computed(
+  () =>
+    stats.value?.positions.map((x) => ({
+      label: `${x.chromosome}:${x.bin + 1} Mb`,
+      value: x.value,
+    })) || [],
+);
+const typeDistribution = computed(() =>
+  ["SNV", "INSERTION", "DELETION", "COMPLEX", "UNSUPPORTED"].flatMap(
+    (type) => stats.value?.types.filter((x) => x.label === type) || [],
+  ),
+);
+const readyCount = computed(
+  () => datasets.value.filter((x) => x.status === "READY").length,
+);
 async function api(url: string, options?: RequestInit) {
-  const response = await fetch("/api" + url, options);
-  if (!response.ok) {
-    let x = await response
+  const r = await fetch("/api" + url, options);
+  if (!r.ok) {
+    const x = await r
       .json()
       .catch(() => ({ message: "服务暂不可用，请检查后端连接" }));
     throw Error(x.message || "请求失败");
   }
-  return response.status === 204
-    ? null
-    : response.text().then((t) => (t ? JSON.parse(t) : null));
+  const text = await r.text();
+  return text ? JSON.parse(text) : null;
 }
-async function list() {
-  datasets.value = await api("/datasets");
-  if (!selected.value || !datasets.value.some((x) => x.id === selected.value))
-    selected.value = datasets.value.find((x) => x.status === "READY")?.id;
-  await load();
-}
-async function load() {
+async function load(onlyRows = false) {
   const gen = ++generation;
   detail.value = undefined;
-  if (!selected.value) {
+  if (!selected.value || current.value?.status !== "READY") {
+    loading.value = false;
     stats.value = undefined;
     rows.value = [];
+    total.value = 0;
     return;
   }
-  busy.value = true;
+  loading.value = true;
   error.value = "";
   try {
     const [s, v] = await Promise.all([
-      api(`/datasets/${selected.value}/stats?${query()}`),
+      onlyRows && stats.value
+        ? Promise.resolve(stats.value)
+        : api(`/datasets/${selected.value}/stats?${query.value}`),
       api(
-        `/datasets/${selected.value}/variants?${query()}&page=${page.value}&size=25&sort=${filters.value.sort}&direction=${filters.value.direction}`,
+        `/datasets/${selected.value}/variants?${query.value}&page=${page.value}&size=25&sort=${sort.value}&direction=${direction.value}`,
       ),
     ]);
     if (gen === generation) {
@@ -90,597 +141,539 @@ async function load() {
       total.value = v.total;
     }
   } catch (e: any) {
-    error.value = e.message;
+    if (gen === generation) {
+      error.value = e.message;
+      stats.value = undefined;
+      rows.value = [];
+      total.value = 0;
+    }
   } finally {
-    if (gen === generation) busy.value = false;
+    if (gen === generation) loading.value = false;
   }
 }
-async function choose() {
-  page.value = 0;
+async function refreshList() {
+  datasets.value = await api("/datasets");
+  if (!selected.value || !datasets.value.some((x) => x.id === selected.value)) {
+    selected.value = datasets.value.find((x) => x.status === "READY")?.id;
+    draft.value = emptyFilters();
+    applied.value = emptyFilters();
+    page.value = 0;
+  }
   await load();
 }
-async function upload(chosen?: File) {
-  const f = chosen || file.value;
-  if (!f) return;
-  busy.value = true;
+async function choose(id: number | undefined) {
   error.value = "";
+  selected.value = id;
+  stats.value = undefined;
+  rows.value = [];
+  page.value = 0;
+  draft.value = emptyFilters();
+  applied.value = emptyFilters();
+  await load();
+}
+function apply() {
+  applied.value = { ...draft.value };
+  page.value = 0;
+  load();
+}
+function reset() {
+  draft.value = emptyFilters();
+  apply();
+}
+function chartFilter(key: "chrom" | "type", v: string) {
+  draft.value = { ...applied.value, [key]: v };
+  applied.value = { ...draft.value };
+  page.value = 0;
+  navigate("variants");
+  load();
+}
+async function upload(payload: {
+  file: File;
+  name: string;
+  reference: string;
+}) {
+  if (busy.value) return;
+  operation.value = true;
+  error.value = "";
+  success.value = "";
   progress.value = "准备上传";
   try {
     const form = new FormData();
-    form.append("file", f);
-    form.append("name", name.value || f.name);
-    if (reference.value) form.append("reference", reference.value);
-    const result: any = await new Promise((resolve, reject) => {
+    form.append("file", payload.file);
+    form.append("name", payload.name);
+    if (payload.reference) form.append("reference", payload.reference);
+    const result: Dataset = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/datasets");
       xhr.upload.onprogress = (e) => {
         progress.value = e.lengthComputable
-          ? `上传 ${Math.round((e.loaded / e.total) * 100)}% · 随后流式解析`
-          : "正在上传";
+          ? e.loaded === e.total
+            ? "上传完成，正在解析与写入…"
+            : `正在上传 ${Math.round((e.loaded / e.total) * 100)}%`
+          : "正在上传…";
       };
       xhr.onload = () => {
-        const x = JSON.parse(xhr.responseText);
-        xhr.status < 300 ? resolve(x) : reject(Error(x.message));
+        try {
+          const x = JSON.parse(xhr.responseText);
+          xhr.status < 300
+            ? resolve(x)
+            : reject(Error(x.message || "导入失败"));
+        } catch {
+          reject(Error("服务器返回无效响应，请稍后重试"));
+        }
       };
       xhr.onerror = () => reject(Error("网络连接失败"));
       xhr.send(form);
     });
-    if (result.status === "FAILED") error.value = result.error;
     selected.value = result.id;
-    await list();
-    view.value = "数据集管理";
+    draft.value = emptyFilters();
+    applied.value = emptyFilters();
+    page.value = 0;
+    await refreshList();
+    navigate("datasets");
+    if (result.status === "FAILED")
+      error.value = result.error || "解析失败，请查看数据集错误记录";
+    else
+      success.value = `已导入 ${number(result.record_count)} 条变异记录：${result.name}`;
   } catch (e: any) {
     error.value = e.message;
   } finally {
-    busy.value = false;
+    operation.value = false;
     progress.value = "";
   }
 }
 async function example() {
+  if (busy.value) return;
+  error.value = "";
   try {
-    const response = await fetch("/data/clinvar-grch38-subset.vcf");
-    if (!response.ok) throw Error("示例文件不可用");
-    await upload(new File([await response.blob()], "ClinVar-GRCh38-1000.vcf"));
+    const r = await fetch("/data/clinvar-grch38-subset.vcf");
+    if (!r.ok) throw Error("示例文件不可用");
+    await upload({
+      file: new File([await r.blob()], "ClinVar-GRCh38-1000.vcf"),
+      name: "ClinVar · GRCh38 公开子集",
+      reference: "",
+    });
   } catch (e: any) {
     error.value = e.message;
   }
 }
-async function remove(ds: Dataset) {
-  if (!confirm(`删除“${ds.name}”及其全部变异记录？`)) return;
+async function remove() {
+  if (!pendingDelete.value || busy.value) return;
+  operation.value = true;
+  error.value = "";
   try {
-    await api(`/datasets/${ds.id}`, { method: "DELETE" });
-    await list();
+    await api(`/datasets/${pendingDelete.value.id}`, { method: "DELETE" });
+    pendingDelete.value = undefined;
+    await refreshList();
+    success.value = "数据集及其变异记录已删除";
   } catch (e: any) {
     error.value = e.message;
+  } finally {
+    operation.value = false;
   }
 }
 async function reanalyze(ds: Dataset) {
+  if (busy.value) return;
+  operation.value = true;
+  error.value = "";
   try {
     await api(`/datasets/${ds.id}/reanalyze`, { method: "POST" });
-    selected.value = ds.id;
-    await load();
-    view.value = "统计分析";
+    await choose(ds.id);
+    navigate("analysis");
+    success.value = "已根据存储记录重新计算统计";
   } catch (e: any) {
     error.value = e.message;
+  } finally {
+    operation.value = false;
   }
 }
-function chartFilter(key: "chrom" | "type", v: string) {
-  filters.value[key] = v;
-  page.value = 0;
-  view.value = "变异浏览";
-  load();
+function openDataset(ds: Dataset) {
+  if (ds.status !== "READY") return;
+  choose(ds.id);
+  navigate("variants");
 }
-const positions = computed(
-  () =>
-    stats.value?.positions.map((x: any) => ({
-      label: `${x.chromosome}:${x.bin + 1}Mb`,
-      value: x.value,
-    })) || [],
-);
-const gt = computed(() => {
-  if (!detail.value) return "—";
-  const i = detail.value.format_value.split(":").indexOf("GT");
-  return i >= 0 ? detail.value.sample_value.split(":")[i] || "." : "未提供";
+function changeSort(value: string) {
+  sort.value = value;
+  page.value = 0;
+  load(true);
+}
+function changeDirection(value: string) {
+  direction.value = value;
+  page.value = 0;
+  load(true);
+}
+watch(view, () => {
+  detail.value = undefined;
 });
-onMounted(() => list().catch((e) => (error.value = e.message)));
+onMounted(() => {
+  window.addEventListener("hashchange", syncHash);
+  refreshList()
+    .catch((e) => (error.value = e.message))
+    .finally(() => (initializing.value = false));
+});
+onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
 </script>
 <template>
-  <div class="shell">
-    <aside>
-      <a class="brand" href="#" @click.prevent="view = nav[0]"
-        ><span class="mark">V</span
-        ><span>VariantScope<small>GENOMIC EXPLORER</small></span></a
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#overview" @click.prevent="navigate('overview')"
+        ><span class="brand-mark"
+          ><svg viewBox="0 0 28 28" fill="none">
+            <path
+              d="M5 6l9 16L23 6M9.5 6l9 16M8.5 12h11M11.5 17h5"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            /></svg></span
+        ><span>VariantScope<small>基因变异分析</small></span></a
       >
-      <div class="workspace">ANALYSIS WORKSPACE</div>
-      <nav>
-        <button
-          v-for="(n, i) in nav"
-          :class="{ active: view === n }"
-          @click="view = n"
+      <div class="nav-caption">工作空间</div>
+      <nav aria-label="主导航">
+        <a
+          v-for="p in pages.slice(0, 4)"
+          :key="p.id"
+          :href="'#' + p.id"
+          :aria-current="view === p.id ? 'page' : undefined"
+          :class="['nav-item', { active: view === p.id }]"
+          @click.prevent="navigate(p.id)"
+          ><UiIcon :name="p.icon" /><span>{{ p.label }}</span
+          ><span
+            v-if="p.id === 'datasets' && datasets.length"
+            class="nav-count"
+            >{{ datasets.length }}</span
+          ></a
         >
-          <span>{{ ["◫", "▤", "≡", "◷", "ⓘ"][i] }}</span>{{ n }}
-        </button>
       </nav>
-      <div class="aside-foot">
-        <span class="tag">V1.0 · OPEN SOURCE</span>
-        <p>从原始变异到可解释的数据</p>
-        <small>教学与科研探索 · 非临床用途</small>
+      <div class="nav-separator"></div>
+      <a
+        href="#about"
+        :class="['nav-item', { active: view === 'about' }]"
+        :aria-current="view === 'about' ? 'page' : undefined"
+        @click.prevent="navigate('about')"
+        ><UiIcon name="info" /><span>项目说明</span></a
+      >
+      <div class="sidebar-bottom">
+        <span class="version">VariantScope <span>v1.0</span></span>
+        <p>教学与科研数据探索</p>
+        <a
+          href="https://github.com/whisper-uoo/VariantScope"
+          target="_blank"
+          rel="noopener noreferrer"
+          >开源仓库<UiIcon name="external"
+        /></a>
       </div>
     </aside>
-    <main>
-      <header class="topbar">
-        <span
-          >工作空间 <b>/ {{ view }}</b></span
-        ><span class="muted">VCF 4.x · Java 17 · MySQL</span>
+    <main class="main-content">
+      <header class="workspace-header">
+        <div>
+          <span class="workspace-name">基因组工作空间</span
+          ><span class="breadcrumb-slash">/</span
+          ><span>{{ currentPage.label }}</span>
+        </div>
+        <span class="header-note">VCF 4.x <i></i>本地数据分析</span>
       </header>
-      <div class="content">
-        <div class="pagehead">
+      <div class="page-content">
+        <header class="page-heading">
           <div>
-            <p class="eyebrow">GENOMIC VARIANT ANALYSIS</p>
-            <h1>{{ view }}</h1>
-            <p class="muted">
-              {{
-                view === "概览工作台"
-                  ? "探索变异数据，理解每一份分析结果。"
-                  : "基于实际导入记录的筛选、统计与可视化"
-              }}
-            </p>
+            <h1>{{ currentPage.label }}</h1>
+            <p>{{ currentPage.description }}</p>
           </div>
-          <button class="primary" @click="view = '数据集管理'">
-            ＋ 导入 VCF 数据
+          <button
+            v-if="view !== 'datasets'"
+            class="button primary"
+            @click="navigate('datasets')"
+          >
+            <UiIcon name="plus" />导入数据集</button
+          ><span v-else class="subtle-label"
+            >{{ readyCount }} 个就绪数据集</span
+          >
+        </header>
+        <div v-if="error" class="notice error" role="alert">
+          <UiIcon name="info" />
+          <div>
+            <strong>操作未完成</strong>
+            <p>{{ error }}</p>
+          </div>
+          <button
+            class="icon-button"
+            aria-label="关闭错误提示"
+            @click="error = ''"
+          >
+            <UiIcon name="close" />
           </button>
         </div>
-        <div v-if="error" class="alert" role="alert">
-          {{ error }}<button class="text" @click="error = ''">关闭</button>
+        <div v-if="success" class="notice success" role="status">
+          <UiIcon name="check" />
+          <p>{{ success }}</p>
+          <button
+            class="icon-button"
+            aria-label="关闭成功提示"
+            @click="success = ''"
+          >
+            <UiIcon name="close" />
+          </button>
         </div>
-        <div v-if="busy" class="loading" role="status">
-          {{ progress || "正在查询与计算…" }}
+        <div v-if="busy" class="activity" role="status">
+          <span class="spinner"></span>{{ progress || "正在读取真实数据…"
+          }}<span class="activity-line"></span>
         </div>
-        <template v-if="view === '项目说明'"
-          ><section class="panel prose">
-            <h2>真实数据，可复现分析</h2>
+        <DatasetManager
+          v-if="view === 'datasets'"
+          :datasets="datasets"
+          :busy="busy"
+          :progress="progress"
+          @upload="upload"
+          @example="example"
+          @open="openDataset"
+          @reanalyze="reanalyze"
+          @remove="pendingDelete = $event"
+        />
+        <template v-else-if="view === 'about'"
+          ><div class="about-intro">
+            <span class="source-tag">关于 VariantScope</span>
+            <h2>让变异数据的每一步，<br />都有据可查。</h2>
             <p>
-              VariantScope 使用流式解析与 MySQL
-              结构化存储，为课程中的基因变异数据探索提供完整工作流。所有图表与当前数据集及筛选条件一致。
+              从 VCF
+              原始记录到可复现的统计。保留数据来源，明确计算口径，让科研探索回到数据本身。
             </p>
-            <h3>统计口径</h3>
-            <p>
-              每行 VCF 记录计为一条变异。SNV
-              为单碱基替换；仅对锚定的简单插入、缺失分类为 InDel。Ti/Tv 仅使用
-              A/C/G/T 的双等位 SNV；颠换数为零时显示“—”。缺失 QUAL
-              独立统计，不参与最低质量筛选。FILTER 的
-              PASS、未检测“.”及其他标签分别统计。
-            </p>
-            <h3>边界与来源</h3>
-            <p>
-              支持无样本或单样本、未压缩 VCF 4.x，最大 100 MB / 100
-              万行。多等位、符号 ALT、结构变异保留但标记为不支持分类。除 GT 外的
-              FORMAT 仅展示原文。位置图按 1 Mb 分箱，最多返回 10,000
-              个非空箱，不表示覆盖深度。参考基因组仅来自文件或用户指定。
-            </p>
-            <p>
-              示例为 NCBI ClinVar GRCh38 公开 VCF 的前 1000
-              条记录，属于非代表性的小范围截取，无个人样本。ClinVar 原始注释只以
-              INFO 展示，系统不推断致病性，也不提供医学诊断。
-            </p>
-          </section></template
-        >
-        <template v-else-if="view === '数据集管理'"
-          ><section class="panel upload">
+          </div>
+          <div class="about-grid">
+            <section class="documentation-panel">
+              <h2>数据与计算</h2>
+              <dl class="method-list">
+                <dt>变异分类</dt>
+                <dd>
+                  每行 VCF 记录计一次。单碱基替换归为
+                  SNV；锚定的简单插入、缺失归为 InDel。多等位、符号 ALT
+                  与结构变异保留原文并标记限制，不进行拆分或临床推断。
+                </dd>
+                <dt>Ti/Tv</dt>
+                <dd>
+                  仅使用 A/C/G/T 的双等位 SNV。A↔G、C↔T
+                  为转换，其余为颠换。颠换数为零时显示“—”。
+                </dd>
+                <dt>QUAL 与 FILTER</dt>
+                <dd>
+                  质量分箱为
+                  [0,20)、[20,50)、[50,100)、[100,+∞)，缺失值单独统计。PASS、未提供“.”及其他过滤标签分别分组。
+                </dd>
+                <dt>位置分布</dt>
+                <dd>
+                  1-based 闭区间坐标，按 1 Mb 分箱；最多返回 10,000
+                  个非空箱，不代表覆盖深度。染色体名称不会自动合并。
+                </dd>
+              </dl>
+            </section>
             <div>
-              <span class="tag">IMPORT DATASET</span>
-              <h2>导入基因变异数据</h2>
-              <p class="muted">标准 .vcf 文本 · 单样本或无样本 · 上限 100 MB</p>
-              <button @click="example" :disabled="busy">
-                导入 ClinVar 公开示例
-              </button>
+              <section class="documentation-panel">
+                <h2>公开示例来源</h2>
+                <p>NCBI ClinVar · GRCh38</p>
+                <p>
+                  保留公开 VCF 头部与前 1,000
+                  条记录，无个人样本列。属于局部截取，不能用于判断全基因组分布。参考版本仅在文件提供或用户指定时展示。
+                </p>
+                <a
+                  href="https://www.ncbi.nlm.nih.gov/clinvar/docs/maintenance_use/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-link"
+                  >ClinVar 数据使用政策<UiIcon name="external"
+                /></a>
+              </section>
+              <section class="documentation-panel">
+                <h2>支持范围与边界</h2>
+                <ul>
+                  <li>未压缩 VCF 4.x，单样本或无样本</li>
+                  <li>最大 100 MB / 100 万条记录</li>
+                  <li>除 GT 外的 FORMAT 仅展示原文</li>
+                  <li>不支持 BCF、多样本、变异归一化</li>
+                  <li>不提供医学诊断或系统致病性推断</li>
+                </ul>
+              </section>
             </div>
-            <form @submit.prevent="upload()">
-              <label
-                >数据集名称<input
-                  v-model="name"
-                  maxlength="200"
-                  placeholder="默认使用文件名" /></label
-              ><label
-                >参考基因组（可选）<input
-                  v-model="reference"
-                  maxlength="500"
-                  placeholder="优先读取文件，未知时留空" /></label
-              ><label
-                >VCF 文件<input
-                  type="file"
-                  accept=".vcf"
-                  required
-                  @change="
-                    file = ($event.target as HTMLInputElement).files?.[0]
-                  " /></label
-              ><button class="primary" :disabled="busy">上传并分析</button>
-            </form>
-          </section>
-          <section class="panel">
-            <h2>
-              数据集目录 <small>{{ datasets.length }} 个</small>
-            </h2>
-            <div class="tablewrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>数据集</th>
-                    <th>参考版本 / 样本</th>
-                    <th>记录数</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="d in datasets">
-                    <td>
-                      <b>{{ d.name }}</b><small>{{
-                        new Date(d.created).toLocaleString()
-                      }}</small
-                      ><small class="error">{{ d.error }}</small>
-                    </td>
-                    <td>
-                      {{ d.reference_name || "未提供"
-                      }}<small>{{ d.samples || "无样本列" }}</small>
-                    </td>
-                    <td>{{ d.record_count.toLocaleString() }}</td>
-                    <td>
-                      <span class="badge" :class="d.status">{{
-                        d.status
-                      }}</span>
-                    </td>
-                    <td class="actions">
-                      <button
-                        @click="
-                          selected = d.id;
-                          choose();
-                          view = '变异浏览';
-                        "
-                      >
-                        查看</button
-                      ><button
-                        :disabled="d.status !== 'READY'"
-                        @click="reanalyze(d)"
-                      >
-                        重新分析</button
-                      ><button @click="remove(d)">删除</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p v-if="!datasets.length" class="empty">
-              尚无数据集。上传 VCF 或导入公开示例开始。
-            </p>
-          </section></template
+          </div></template
         >
         <template v-else
-          ><div class="datasetbar">
-            <div>
-              <label>当前数据集</label
-              ><select v-model="selected" @change="choose">
-                <option :value="undefined">选择数据集</option>
-                <option v-for="d in datasets" :value="d.id">
-                  {{ d.name }} · {{ d.status }}
-                </option>
-              </select>
-            </div>
-            <span class="muted"
-              >参考版本：{{ current?.reference_name || "未提供" }}<br />样本：{{
-                current?.samples || "无样本列"
-              }}</span
-            ><span class="tag">{{ current?.status || "NO DATA" }}</span>
-          </div>
-          <div v-if="!selected" class="panel empty">
-            <h2>让第一份数据开始说话</h2>
-            <p>导入标准 VCF，浏览变异并生成真实统计。</p>
-            <button class="primary" @click="view = '数据集管理'">
-              导入数据
+          ><DatasetContext
+            :datasets="datasets"
+            :current="current"
+            :selected="selected"
+            @select="choose" />
+          <div v-if="!selected && !busy" class="empty-state page-empty">
+            <UiIcon name="datasets" />
+            <h2>从一份 VCF 开始探索</h2>
+            <p>导入真实变异记录后，即可查看分布、质量与逐条详情。</p>
+            <button class="button primary" @click="navigate('datasets')">
+              导入第一个数据集
             </button>
           </div>
-          <template v-else
-            ><section class="filters panel" v-if="view !== '概览工作台'">
-              <header>
-                <h3>组合筛选</h3>
-                <button
-                  class="text"
-                  @click="
-                    filters = {
-                      chrom: '',
-                      start: '',
-                      end: '',
-                      type: '',
-                      minQual: '',
-                      filter: '',
-                      variantId: '',
-                      sort: 'id',
-                      direction: 'asc',
-                    };
-                    page = 0;
-                    load();
-                  "
-                >
-                  清空条件
-                </button>
-              </header>
-              <form
-                @submit.prevent="
-                  page = 0;
-                  load();
-                "
-              >
-                <label
-                  >染色体<input
-                    v-model="filters.chrom"
-                    placeholder="如 1 / chr1" /></label
-                ><label
-                  >起始位置<input
-                    v-model="filters.start"
-                    type="number"
-                    min="1" /></label
-                ><label
-                  >终止位置<input
-                    v-model="filters.end"
-                    type="number"
-                    min="1" /></label
-                ><label
-                  >变异类型<select v-model="filters.type">
-                    <option value="">全部类型</option>
-                    <option
-                      v-for="t in [
-                        'SNV',
-                        'INSERTION',
-                        'DELETION',
-                        'COMPLEX',
-                        'UNSUPPORTED',
-                      ]"
-                    >
-                      {{ t }}
-                    </option>
-                  </select></label
-                ><label
-                  >最低 QUAL<input
-                    v-model="filters.minQual"
-                    type="number"
-                    min="0"
-                    step="any" /></label
-                ><label
-                  >FILTER<input
-                    v-model="filters.filter"
-                    placeholder="PASS / . / q10" /></label
-                ><label
-                  >变异 ID<input
-                    v-model="filters.variantId"
-                    placeholder="精确匹配" /></label
-                ><button class="primary" :disabled="busy">应用筛选</button>
-              </form>
-            </section>
-            <div class="metrics" v-if="stats">
-              <div>
-                <span>当前范围变异记录</span
-                ><strong>{{ stats.total.toLocaleString() }}</strong
-                ><small>来自后端实时聚合</small>
-              </div>
-              <div>
-                <span>染色体 / Contig</span
-                ><strong>{{ stats.chromosomes.length }}</strong
-                ><small>当前筛选中的非空序列</small>
-              </div>
-              <div>
-                <span>转换 / 颠换 Ti/Tv</span
-                ><strong>{{ stats.titv?.toFixed(3) || "—" }}</strong
-                ><small
-                  >{{ stats.transitions }} Ti /
-                  {{ stats.transversions }} Tv</small
-                >
-              </div>
-              <div>
-                <span>SNV / 简单 InDel</span
-                ><strong
-                  >{{
-                    stats.types.find((x: any) => x.label === "SNV")?.value || 0
-                  }}
-                  <em
-                    >/
-                    {{
-                      stats.types
-                        .filter((x: any) =>
-                          ["INSERTION", "DELETION"].includes(x.label),
-                        )
-                        .reduce((a: number, x: any) => a + x.value, 0)
-                    }}</em
-                  ></strong
-                ><small>不含多等位和复杂替换</small>
-              </div>
-            </div>
-            <template v-if="view === '变异浏览'"
-              ><section class="panel">
-                <header>
-                  <div>
-                    <h2>
-                      变异记录 <small>{{ total.toLocaleString() }} 条</small>
-                    </h2>
-                    <p class="muted">点击记录查看原始字段与样本基因型</p>
-                  </div>
-                  <a
-                    class="button"
-                    :href="`/api/datasets/${selected}/export?${query()}`"
-                    >导出筛选 CSV</a
-                  >
-                </header>
-                <div class="sort">
-                  <label
-                    >排序<select v-model="filters.sort" @change="load">
-                      <option value="id">导入顺序</option>
-                      <option value="pos">位置</option>
-                      <option value="qual">QUAL</option>
-                      <option value="chrom">染色体</option>
-                    </select></label
-                  ><select v-model="filters.direction" @change="load">
-                    <option value="asc">升序</option>
-                    <option value="desc">降序</option>
-                  </select>
-                </div>
-                <div class="tablewrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>染色体</th>
-                        <th>位置</th>
-                        <th>ID</th>
-                        <th>REF / ALT</th>
-                        <th>类型</th>
-                        <th>QUAL</th>
-                        <th>FILTER</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="row in rows"
-                        tabindex="0"
-                        @click="detail = row"
-                        @keydown.enter="detail = row"
-                      >
-                        <td>
-                          <span class="chrom">{{ row.chrom }}</span>
-                        </td>
-                        <td class="mono">{{ row.pos.toLocaleString() }}</td>
-                        <td>{{ row.variant_id }}</td>
-                        <td class="mono">{{ row.ref }} / {{ row.alt }}</td>
-                        <td>
-                          <span class="badge">{{ row.type }}</span>
-                        </td>
-                        <td>{{ row.qual ?? "—" }}</td>
-                        <td>{{ row.filter_value }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <p v-if="!rows.length" class="empty">
-                  没有符合当前条件的变异。
-                </p>
-                <footer class="pagination">
-                  <span>第 {{ page + 1 }} 页 · 每页 25 条</span
-                  ><button
-                    :disabled="!page || busy"
-                    @click="
-                      page--;
-                      load();
-                    "
-                  >
-                    上一页</button
-                  ><button
-                    :disabled="(page + 1) * 25 >= total || busy"
-                    @click="
-                      page++;
-                      load();
-                    "
-                  >
-                    下一页
-                  </button>
-                </footer>
-              </section></template
+          <div
+            v-else-if="current && current.status !== 'READY'"
+            class="empty-state page-empty"
+          >
+            <UiIcon name="info" />
+            <h2>
+              {{
+                current.status === "FAILED"
+                  ? "这份数据尚未成功导入"
+                  : "数据正在解析中"
+              }}
+            </h2>
+            <p>{{ current.error || "请在数据集管理页面查看解析状态。" }}</p>
+            <button class="button secondary" @click="navigate('datasets')">
+              查看数据集状态
+            </button>
+          </div>
+          <template v-else>
+            <FilterBar
+              v-if="view !== 'overview'"
+              v-model="draft"
+              :applied="applied"
+              :busy="busy"
+              @apply="apply"
+              @reset="reset" />
+            <div
+              :class="['analysis-results', { refreshing: loading }]"
+              :aria-busy="loading"
             >
-            <template v-else-if="stats"
-              ><div class="charts">
-                <Chart
-                  title="染色体变异分布"
-                  :data="stats.chromosomes"
-                  @select="chartFilter('chrom', $event)"
-                /><Chart
-                  title="变异类型构成"
-                  kind="pie"
-                  :data="stats.types"
-                  @select="chartFilter('type', $event)"
-                /><Chart
-                  title="碱基替换分布"
-                  :data="stats.substitutions"
-                /><Chart
-                  title="QUAL 质量分数分布"
-                  :data="stats.quality"
-                /><template v-if="view === '统计分析'"
-                  ><Chart title="FILTER 状态分布" :data="stats.filters" /><Chart
-                    title="基因组位置分布 · 1 Mb 分箱"
-                    :data="positions"
-                /></template>
-              </div>
-              <p class="footnote">
-                统计范围：当前数据集{{
-                  query() ? "及已应用的筛选条件" : ""
-                }}。点击染色体或类型图表可筛选记录。Ti/Tv 仅计标准碱基双等位
-                SNV。
-              </p>
-              <section v-if="view === '概览工作台'" class="panel">
-                <header>
-                  <h2>最近导入</h2>
-                  <button @click="view = '数据集管理'">管理全部数据集</button>
-                </header>
-                <div class="recent" v-for="d in datasets.slice(0, 4)">
-                  <b>{{ d.name }}</b><span
-                    >{{ d.record_count.toLocaleString() }} 条记录</span
-                  ><span class="badge">{{ d.status }}</span
-                  ><span class="muted">{{
-                    new Date(d.created).toLocaleString()
-                  }}</span>
+              <MetricSummary
+                v-if="stats"
+                :stats="stats"
+                :compact="view === 'variants'"
+              />
+              <VariantTable
+                v-if="view === 'variants'"
+                :rows="rows"
+                :total="total"
+                :page="page"
+                :busy="busy"
+                :sort="sort"
+                :direction="direction"
+                :export-url="exportUrl"
+                :active-id="detail?.id"
+                @open="detail = $event"
+                @page="
+                  page = $event;
+                  load(true);
+                "
+                @sort="changeSort"
+                @direction="changeDirection"
+              />
+              <template v-else-if="stats"
+                ><div class="analysis-section-heading">
+                  <h2>{{ view === "overview" ? "数据分布" : "分布与质量" }}</h2>
+                  <span
+                    >{{ query ? "已应用筛选" : "全部记录" }} ·
+                    {{ stats.chromosomes.length }} 个 Contig</span
+                  >
                 </div>
-              </section></template
-            ></template
-          ></template
-        >
-        <footer class="pagefoot">
-          VariantScope · 可复现的基因变异数据探索
-          <span>仅用于教学与科研探索，不用于临床诊断</span>
+                <div class="chart-grid">
+                  <Chart
+                    title="染色体分布"
+                    description="各染色体上的变异记录数量"
+                    :data="stats.chromosomes"
+                    interactive
+                    @select="chartFilter('chrom', $event)"
+                  /><Chart
+                    title="变异类型"
+                    description="数量与占比 · 包含未分类记录"
+                    kind="types"
+                    :data="typeDistribution"
+                    interactive
+                    @select="chartFilter('type', $event)"
+                  /><Chart
+                    title="碱基替换"
+                    description="12 种有向替换，不进行互补折叠"
+                    :data="stats.substitutions"
+                    note="绿色：转换 · 蓝色：颠换"
+                  /><Chart
+                    title="质量分数"
+                    description="QUAL 区间分布，缺失值独立统计"
+                    :data="stats.quality"
+                    note="半开区间 [下界, 上界)，Missing 表示未提供"
+                  /><template v-if="view === 'analysis'"
+                    ><Chart
+                      title="FILTER 状态"
+                      description="按原始过滤标签分别统计"
+                      :data="stats.filters"
+                      note="“.” 表示未提供，不等同于 PASS" /><Chart
+                      title="基因组位置"
+                      description="按染色体与 1 Mb 非空位置箱汇总"
+                      :data="positions"
+                      note="最多 10,000 个非空箱 · 不代表覆盖深度"
+                  /></template>
+                </div>
+                <p class="analysis-footnote">
+                  <UiIcon name="info" />范围与已应用的筛选一致。Ti/Tv
+                  仅计标准碱基双等位 SNV，无法计算时显示“—”。
+                </p>
+                <section v-if="view === 'overview'" class="recent-panel">
+                  <header>
+                    <h2>最近导入</h2>
+                    <button class="text-button" @click="navigate('datasets')">
+                      管理数据集
+                    </button>
+                  </header>
+                  <button
+                    v-for="d in datasets.slice(0, 4)"
+                    :key="d.id"
+                    class="recent-row"
+                    :disabled="d.status !== 'READY'"
+                    @click="openDataset(d)"
+                  >
+                    <UiIcon name="file" /><span class="recent-name"
+                      >{{ d.name
+                      }}<small>{{
+                        d.reference_name || "参考版本未提供"
+                      }}</small></span
+                    ><span class="tabular"
+                      >{{ number(d.record_count) }}<small>条记录</small></span
+                    ><StatusBadge :status="d.status" /><time>{{
+                      dateTime(d.created)
+                    }}</time
+                    ><UiIcon name="chevron" />
+                  </button></section
+              ></template></div></template
+        ></template>
+        <footer class="page-footer">
+          <span>VariantScope · 保留来源，理解变异</span
+          ><span>仅用于教学与科研探索，不用于临床诊断</span>
         </footer>
       </div>
     </main>
-    <div class="overlay" v-if="detail" @click.self="detail = undefined">
-      <section class="drawer">
-        <header>
-          <div>
-            <p class="eyebrow">VARIANT DETAIL</p>
-            <h2>{{ detail.chrom }}:{{ detail.pos }}</h2>
-          </div>
-          <button @click="detail = undefined">关闭</button>
-        </header>
-        <h3>文件直接提供</h3>
-        <dl>
-          <template
-            v-for="k in [
-              'variant_id',
-              'ref',
-              'alt',
-              'qual',
-              'filter_value',
-              'format_value',
-              'sample_value',
-            ]"
-            ><dt>{{ k }}</dt>
-            <dd>{{ detail[k] ?? "缺失" }}</dd></template
-          >
-          <dt>GT</dt>
-          <dd>{{ gt }}</dd>
-        </dl>
-        <h3>INFO 属性（原始来源）</h3>
-        <dl>
-          <template v-for="part in detail.info.split(';')"
-            ><dt>{{ part.split("=")[0] }}</dt>
-            <dd>
-              {{
-                part.includes("=")
-                  ? part.substring(part.indexOf("=") + 1)
-                  : "Flag / 缺失"
-              }}
-            </dd></template
-          >
-        </dl>
-        <h3>系统计算</h3>
-        <p>变异类型：{{ detail.type }}</p>
-        <p class="alert" v-if="detail.warning">{{ detail.warning }}</p>
-        <h3>原始 VCF 行</h3>
-        <pre>{{ detail.raw_line }}</pre>
-        <p class="muted">不进行致病性判定。INFO 内容来自上传文件。</p>
-      </section>
-    </div>
+    <VariantDetail
+      v-if="detail"
+      :variant="detail"
+      @close="detail = undefined"
+    />
+    <UiDialog
+      v-if="pendingDelete"
+      title="删除数据集"
+      @close="
+        () => {
+          if (!busy) pendingDelete = undefined;
+        }
+      "
+      ><div class="confirm-body">
+        <p>
+          确认删除 <strong>{{ pendingDelete.name }}</strong>？
+        </p>
+        <p class="muted">
+          这将同时删除
+          {{ number(pendingDelete.record_count) }} 条变异记录，操作无法撤销。
+        </p>
+      </div>
+      <footer class="dialog-actions">
+        <button
+          class="button secondary"
+          :disabled="busy"
+          @click="pendingDelete = undefined"
+        >
+          取消</button
+        ><button class="button danger" :disabled="busy" @click="remove">
+          {{ operation ? "正在删除…" : "删除数据集" }}
+        </button>
+      </footer></UiDialog
+    >
   </div>
 </template>
