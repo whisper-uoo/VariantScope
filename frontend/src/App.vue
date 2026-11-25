@@ -189,6 +189,9 @@ async function retry() {
     await refreshList();
   } catch (e: any) {
     error.value = e.message;
+    stats.value = undefined;
+    rows.value = [];
+    total.value = 0;
   } finally {
     loading.value = false;
   }

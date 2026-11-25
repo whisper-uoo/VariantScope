@@ -222,3 +222,16 @@ describe("desktop workspace controls", () => {
     ).toBe("rs-test");
   });
 });
+
+describe("refresh status integrity", () => {
+  it("clears previous statistics if the dataset refresh itself fails", async () => {
+    await start();
+    expect(wrapper.find(".metric-summary").exists()).toBe(true);
+    vi.mocked(fetch).mockRejectedValue(new TypeError("offline"));
+    await wrapper.get('button[aria-label="刷新数据"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain("无法连接数据服务");
+    expect(wrapper.find(".metric-summary").exists()).toBe(false);
+    expect(wrapper.findAll("tbody tr")).toHaveLength(0);
+  });
+});

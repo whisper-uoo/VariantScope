@@ -45,3 +45,16 @@ describe("upload interaction boundaries", () => {
     w.unmount();
   });
 });
+
+describe("import progress semantics", () => {
+  it("shows transfer percentage separately from indeterminate parsing", async () => {
+    const w = mount(DatasetManager, {
+      props: { datasets: [], busy: true, progress: "正在上传 45%" },
+    });
+    expect(w.get("progress").attributes("value")).toBe("45");
+    await w.setProps({ progress: "上传完成，正在解析与写入…" });
+    expect(w.get("progress").attributes("value")).toBeUndefined();
+    expect(w.text()).toContain("解析与写入阶段");
+    w.unmount();
+  });
+});
