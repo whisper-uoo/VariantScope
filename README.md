@@ -27,7 +27,9 @@
 
 ![统计分析](docs/screenshots/analysis.png)
 
-前端 UI/UX 已统一重构，设计系统、组件结构、桌面/手机实测及已知限制见 [UI/UX 重构验收](docs/UI-UX-REFACTOR.md)。
+前端已按桌面专业应用的层级重设计，采用系统字体、组合式文件摘要与数据自适应图表。设计决策、五页真实前后对照、桌面/手机验证和限制见 [原生层级重设计验收](docs/NATIVE-REDESIGN.md)。前一轮验收记录仍保留作历史参考。
+
+![概览前后对照](docs/screenshots/compare-overview.png)
 
 ## 快速运行
 
