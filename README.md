@@ -19,17 +19,19 @@
 
 ## 真实运行截图
 
-![工作台](docs/screenshots/overview.png)
+本轮先研究 Linear、Vercel Analytics、Seqera Platform 与 gnomAD 官方界面，再重构页面结构。保留真实后端：紧凑范围栏、指标摘要与主次图网格、目录式数据集管理、表格与并列详情检查器、数量/占比与分析主题切换。
 
-![变异浏览](docs/screenshots/browser.png)
+![概览工作台](docs/screenshots/workspace/after-overview.png)
 
-![数据集管理](docs/screenshots/datasets.png)
+![变异表格与详情检查器](docs/screenshots/workspace/after-variants.png)
 
-![统计分析](docs/screenshots/analysis.png)
+![数据集目录](docs/screenshots/workspace/after-datasets.png)
 
-前端已按桌面专业应用的层级重设计，采用系统字体、组合式文件摘要与数据自适应图表。设计决策、五页真实前后对照、桌面/手机验证和限制见 [原生层级重设计验收](docs/NATIVE-REDESIGN.md)。前一轮验收记录仍保留作历史参考。
+![统计探索](docs/screenshots/workspace/after-analysis.png)
 
-![概览前后对照](docs/screenshots/compare-overview.png)
+![概览前后对比](docs/screenshots/workspace/compare-overview.png)
+
+研究来源、实现前方案、设计决策、五页截图与验证结果见 [工作空间重设计记录](docs/WORKSPACE-REDESIGN.md)。此前的 [原生层级方案](docs/NATIVE-REDESIGN.md) 保留为历史记录，以上截图对应当前版本。
 
 ## 快速运行
 

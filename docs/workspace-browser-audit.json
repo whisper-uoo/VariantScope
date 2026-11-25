@@ -1,0 +1,67 @@
+[
+  {
+    "page": "overview",
+    "width": 1440,
+    "height": 1000,
+    "scrollWidth": 1440,
+    "charts": 4
+  },
+  {
+    "page": "datasets",
+    "width": 1440,
+    "height": 1000,
+    "scrollWidth": 1440,
+    "charts": 0
+  },
+  {
+    "page": "variants",
+    "width": 1440,
+    "height": 1000,
+    "scrollWidth": 1440,
+    "charts": 0
+  },
+  {
+    "page": "analysis",
+    "width": 1440,
+    "height": 1000,
+    "scrollWidth": 1440,
+    "charts": 6
+  },
+  {
+    "page": "about",
+    "width": 1440,
+    "height": 1000,
+    "scrollWidth": 1440,
+    "charts": 0
+  },
+  {
+    "page": "overview",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390
+  },
+  {
+    "page": "datasets",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390
+  },
+  {
+    "page": "variants",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390
+  },
+  {
+    "page": "analysis",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390
+  },
+  {
+    "page": "about",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390
+  }
+]
