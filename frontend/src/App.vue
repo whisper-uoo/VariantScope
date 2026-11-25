@@ -54,6 +54,7 @@ const sidebarCollapsed = ref(false);
 const isNarrow = ref(window.innerWidth < 760);
 function resizeLayout() {
   isNarrow.value = window.innerWidth < 760;
+  if (isNarrow.value) sidebarCollapsed.value = false;
   if (!isNarrow.value) navOpen.value = false;
 }
 const navOpen = ref(false);
