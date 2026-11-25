@@ -23,6 +23,12 @@
 
 ![变异浏览](docs/screenshots/browser.png)
 
+![数据集管理](docs/screenshots/datasets.png)
+
+![统计分析](docs/screenshots/analysis.png)
+
+前端 UI/UX 已统一重构，设计系统、组件结构、桌面/手机实测及已知限制见 [UI/UX 重构验收](docs/UI-UX-REFACTOR.md)。
+
 ## 快速运行
 
 需要 Java 17、Maven 3.9+、Node 22+、npm 和正在运行的 MySQL 8。
@@ -111,7 +117,7 @@ docs/                    API、实测记录、真实截图
 
 ```bash
 mvn -f backend/pom.xml verify
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run test && npm run build
 # 在已启动后端、真实 MySQL 环境中，从仓库根目录运行：
 python3 scripts/smoke.py
 python3 scripts/benchmark.py --records 100000 --pid <后端Java进程PID> --output benchmark.json
