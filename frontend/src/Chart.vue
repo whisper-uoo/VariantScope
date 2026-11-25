@@ -28,8 +28,9 @@ const props = withDefaults(
     kind?: "bar" | "types";
     interactive?: boolean;
     note?: string;
+    measure?: "count" | "share";
   }>(),
-  { kind: "bar", interactive: false },
+  { kind: "bar", interactive: false, measure: "count" },
 );
 const emit = defineEmits<{ select: [string] }>();
 const el = ref<HTMLElement>();
@@ -41,7 +42,7 @@ const single = computed(
   () => props.kind !== "types" && props.data.length === 1,
 );
 const isMissing = computed(
-  () => single.value && ["Missing", "."].includes(props.data[0].label),
+  () => single.value && props.data[0].label === "Missing",
 );
 const summary = computed(() =>
   props.data
@@ -58,14 +59,17 @@ const chartLabel = (s: string) =>
       ? "未提供（.）"
       : typeNames[s] || s;
 const font =
-  '-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif';
+  'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif';
 function render() {
   if (!chart || !el.value) return;
   const w = el.value.clientWidth;
   const types = props.kind === "types";
   const crowded = props.data.length > 18;
   const small = w < 420;
-  const color = "#6385aa";
+  const color = "#7970d8";
+  const share = props.measure === "share";
+  const plotValue = (v: number) =>
+    share ? (total.value > 0 ? (v / total.value) * 100 : 0) : v;
   const base: any = {
     animation: !motion?.matches,
     animationDuration: 180,
@@ -82,7 +86,10 @@ function render() {
       axisPointer: { type: "shadow", shadowStyle: { color: "#587ca20b" } },
       formatter: (input: any) => {
         const x = Array.isArray(input) ? input[0] : input;
-        return `${chartLabel(x.seriesName && types ? x.seriesName : x.name)}\n${number(x.value)} 条${types ? " · " + percentage(x.value, total.value) : ""}`;
+        const raw = types
+          ? x.value
+          : (props.data[x.dataIndex]?.value ?? x.value);
+        return `${chartLabel(x.seriesName && types ? x.seriesName : x.name)}\n${number(raw)} 条 · ${percentage(raw, total.value)}`;
       },
     },
     graphic: [],
@@ -105,13 +112,20 @@ function render() {
     yAxis: {
       type: "value",
       min: 0,
-      minInterval: 1,
+      minInterval: share ? 0 : 1,
+      max: share ? 100 : undefined,
       splitNumber: 3,
       axisLabel: {
         fontSize: 11,
         color: "#747b86",
         formatter: (v: number) =>
-          v >= 1e6 ? `${v / 1e6}m` : v >= 1000 ? `${v / 1000}k` : String(v),
+          share
+            ? `${number(v)}%`
+            : v >= 1e6
+              ? `${v / 1e6}m`
+              : v >= 1000
+                ? `${v / 1000}k`
+                : String(v),
       },
       splitLine: { lineStyle: { color: "#e5e8ee", type: "solid" } },
     },
@@ -124,13 +138,13 @@ function render() {
         emphasis: { itemStyle: { opacity: 0.75 } },
         data: props.data.map((x) => ({
           name: x.label,
-          value: x.value,
+          value: plotValue(x.value),
           itemStyle: {
             color:
               props.title === "碱基替换"
                 ? new Set(["A>G", "G>A", "C>T", "T>C"]).has(x.label)
-                  ? "#7a9e8c"
-                  : "#9da9c0"
+                  ? "#7970d8"
+                  : "#b7b6c8"
                 : color,
           },
         })),
@@ -250,7 +264,9 @@ function render() {
         right: 0,
         top: 8,
         style: {
-          text: `${number(x.value)} 条`,
+          text: share
+            ? percentage(x.value, total.value)
+            : `${number(x.value)} 条`,
           font: `500 23px ${font}`,
           fill: "#3d4c61",
         },
@@ -265,7 +281,9 @@ function render() {
             ? "缺失记录单独统计，不替换为 0"
             : props.title === "染色体分布"
               ? "当前范围仅包含这一个 Contig"
-              : "当前范围仅有这一个分组",
+              : x.label === "."
+                ? "未提供过滤标签，不等同于 PASS"
+                : "当前范围仅有这一个分组",
           font: `12px ${font}`,
           fill: "#6b7582",
         },
@@ -291,7 +309,7 @@ onMounted(() => {
   observer.observe(el.value!);
   render();
 });
-watch(() => [props.data, props.kind], render, { deep: true });
+watch(() => [props.data, props.kind, props.measure], render, { deep: true });
 onBeforeUnmount(() => {
   observer?.disconnect();
   chart?.dispose();
@@ -369,7 +387,9 @@ function download() {
           ? "比例带按真实数量绘制，未放大小类别"
           : single
             ? "分组与范围由当前数据决定"
-            : "纵轴：变异记录数")
+            : measure === "share"
+              ? "纵轴：本图记录占比 (%)"
+              : "纵轴：变异记录数")
       }}</span>
       <details v-if="data.length" class="chart-values">
         <summary>{{ interactive ? "数值与筛选" : "查看数值" }}</summary>

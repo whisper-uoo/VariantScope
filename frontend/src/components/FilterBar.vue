@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import type { Filters } from "../lib/domain";
 import { filterNames, typeNames } from "../lib/domain";
 import UiIcon from "./UiIcon.vue";
-const expanded = ref(true);
+const expanded = ref(window.innerWidth >= 760);
 const p = defineProps<{
   modelValue: Filters;
   applied: Filters;
@@ -41,11 +41,8 @@ const dirty = computed(
           :aria-expanded="expanded"
           @click="expanded = !expanded"
         >
-          {{ expanded ? "收起条件" : "展开条件" }}</button><button
-          class="text-button"
-          @click="emit('reset')"
-          :disabled="busy"
-        >
+          {{ expanded ? "收起条件" : "展开条件" }}</button
+        ><button class="text-button" @click="emit('reset')" :disabled="busy">
           重置
         </button>
       </div>

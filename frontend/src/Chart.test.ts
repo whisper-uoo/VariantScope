@@ -88,3 +88,50 @@ describe("data-adaptive scientific charts", () => {
     w.unmount();
   });
 });
+
+describe("comparable count and share charts", () => {
+  it("normalizes only chart values while tooltip retains true counts and selection keeps category", async () => {
+    const w = mount(Chart, {
+      props: {
+        title: "FILTER 状态",
+        description: "Synthetic fixture",
+        interactive: true,
+        data: [
+          { label: "PASS", value: 3 },
+          { label: "q10", value: 1 },
+        ],
+      },
+    });
+    expect(
+      state.setOption.mock.calls
+        .at(-1)![0]
+        .series[0].data.map((d: any) => d.value),
+    ).toEqual([3, 1]);
+    await w.setProps({ measure: "share" });
+    const o = state.setOption.mock.calls.at(-1)![0];
+    expect(o.series[0].data.map((d: any) => d.value)).toEqual([75, 25]);
+    expect(o.yAxis.max).toBe(100);
+    expect(
+      o.tooltip.formatter({ name: "PASS", value: 75, dataIndex: 0 }),
+    ).toContain("3 条 · 75.0%");
+    state.events.click({ componentType: "series", dataIndex: 1 });
+    expect(w.emitted("select")).toEqual([["q10"]]);
+    w.unmount();
+  });
+  it("does not describe missing FILTER as missing quality", () => {
+    const w = mount(Chart, {
+      props: {
+        title: "FILTER 状态",
+        description: "Synthetic fixture",
+        data: [{ label: ".", value: 1 }],
+      },
+    });
+    const o = state.setOption.mock.calls.at(-1)![0];
+    expect(
+      o.graphic.some(
+        (g: any) => g.style.text === "未提供过滤标签，不等同于 PASS",
+      ),
+    ).toBe(true);
+    w.unmount();
+  });
+});

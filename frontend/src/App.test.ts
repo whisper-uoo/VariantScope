@@ -105,7 +105,7 @@ describe("analysis scope regression", () => {
   });
   it("retains zero Ti/Tv, and does not recompute statistics on sort", async () => {
     await start();
-    expect(wrapper.find(".metric-summary").text()).toContain("0.000");
+    expect(wrapper.find(".browser-scope").text()).toContain("0.000");
     const before = vi
       .mocked(fetch)
       .mock.calls.filter(([u]) => String(u).includes("/stats")).length;
@@ -132,7 +132,7 @@ describe("analysis scope regression", () => {
       "Test connection unavailable",
     );
     expect(wrapper.findAll("tbody tr")).toHaveLength(0);
-    expect(wrapper.find(".metric-summary").exists()).toBe(false);
+    expect(wrapper.find(".browser-scope").exists()).toBe(false);
   });
 });
 
@@ -158,7 +158,7 @@ describe("request lifetime and recovery", () => {
       text: async () => JSON.stringify(stats),
     } as Response);
     await flushPromises();
-    expect(wrapper.find(".metric-summary").exists()).toBe(false);
+    expect(wrapper.find(".browser-scope").exists()).toBe(false);
     expect(wrapper.find(".activity").exists()).toBe(false);
     expect(wrapper.text()).toContain("从一份 VCF 开始探索");
   });
@@ -226,12 +226,48 @@ describe("desktop workspace controls", () => {
 describe("refresh status integrity", () => {
   it("clears previous statistics if the dataset refresh itself fails", async () => {
     await start();
-    expect(wrapper.find(".metric-summary").exists()).toBe(true);
+    expect(wrapper.find(".browser-scope").exists()).toBe(true);
     vi.mocked(fetch).mockRejectedValue(new TypeError("offline"));
     await wrapper.get('button[aria-label="刷新数据"]').trigger("click");
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain("无法连接数据服务");
-    expect(wrapper.find(".metric-summary").exists()).toBe(false);
+    expect(wrapper.find(".browser-scope").exists()).toBe(false);
     expect(wrapper.findAll("tbody tr")).toHaveLength(0);
+  });
+});
+
+describe("record inspector and linked exploration", () => {
+  it("shows original fields beside the table and closes with Escape", async () => {
+    await start();
+    await wrapper.get("button.coordinate").trigger("click");
+    expect(wrapper.get("aside.variant-inspector").text()).toContain(
+      "SYNTHETIC",
+    );
+    expect(wrapper.get(".browser-workspace").classes()).toContain(
+      "has-inspector",
+    );
+    expect(wrapper.find("dialog").exists()).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find(".variant-inspector").exists()).toBe(false);
+  });
+  it("keeps the analysis view when chart selection applies backend filters", async () => {
+    await start();
+    await wrapper.get('a[href="#analysis"]').trigger("click");
+    await flushPromises();
+    const analysis = wrapper.findComponent({ name: "AnalysisView" });
+    analysis.vm.$emit("filter", "type", "SNV");
+    await flushPromises();
+    expect(location.hash).toBe("#analysis");
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([u]) => String(u).includes("/stats?type=SNV")),
+    ).toBe(true);
+    await wrapper.get('a[href="#variants"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.get('a[href*="/export"]').attributes("href")).toContain(
+      "type=SNV",
+    );
   });
 });

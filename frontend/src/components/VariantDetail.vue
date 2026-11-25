@@ -1,10 +1,33 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import type { Variant } from "../lib/domain";
 import { number, genotype, infoEntries, typeNames } from "../lib/domain";
 import UiDialog from "./UiDialog.vue";
-const p = defineProps<{ variant: Variant }>();
-defineEmits<{ close: [] }>();
+const p = defineProps<{ variant: Variant; inline?: boolean }>();
+const emit = defineEmits<{ close: [] }>();
+const inspector = ref<HTMLElement>();
+let previous: HTMLElement | null = null;
+let previousScroll = 0;
+let movedToInspector = false;
+function escape(e: KeyboardEvent) {
+  if (p.inline && e.key === "Escape") emit("close");
+}
+onMounted(() => {
+  if (p.inline) {
+    previous = document.activeElement as HTMLElement;
+    previousScroll = window.scrollY;
+    movedToInspector = window.innerWidth <= 950;
+    if (movedToInspector) inspector.value?.scrollIntoView?.({ block: "start" });
+    inspector.value?.focus({ preventScroll: true });
+    window.addEventListener("keydown", escape);
+  }
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", escape);
+  previous?.focus({ preventScroll: true });
+  if (movedToInspector)
+    window.scrollTo({ top: previousScroll, behavior: "instant" });
+});
 const info = computed(() => infoEntries(p.variant.info));
 const copied = ref(false);
 const copyError = ref(false);
@@ -19,7 +42,22 @@ async function copy() {
 }
 </script>
 <template>
-  <UiDialog title="变异详情" drawer @close="$emit('close')">
+  <component
+    :is="inline ? 'aside' : UiDialog"
+    ref="inspector"
+    class="variant-inspector"
+    :tabindex="inline ? -1 : undefined"
+    :aria-label="inline ? '变异详情' : undefined"
+    title="变异详情"
+    :drawer="!inline"
+    @close="$emit('close')"
+  >
+    <header v-if="inline" class="inspector-heading">
+      <h2>变异详情</h2>
+      <button class="icon-button" aria-label="关闭详情" @click="$emit('close')">
+        ×
+      </button>
+    </header>
     <div class="variant-identity">
       <span class="eyebrow">基因组坐标 · 1-based</span>
       <h3 class="mono">
@@ -96,5 +134,5 @@ async function copy() {
         无法访问剪贴板，请在上方选中原文复制。
       </p>
     </section>
-  </UiDialog>
+  </component>
 </template>

@@ -1,18 +1,10 @@
 <script setup lang="ts">
-import {
-  ref,
-  computed,
-  onMounted,
-  onBeforeUnmount,
-  watch,
-  defineAsyncComponent,
-} from "vue";
-const Chart = defineAsyncComponent(() => import("./Chart.vue"));
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
+import OverviewView from "./views/OverviewView.vue";
+import AnalysisView from "./views/AnalysisView.vue";
 import UiIcon from "./components/UiIcon.vue";
 import LoadingSkeleton from "./components/LoadingSkeleton.vue";
-import StatusBadge from "./components/StatusBadge.vue";
 import DatasetContext from "./components/DatasetContext.vue";
-import MetricSummary from "./components/MetricSummary.vue";
 import FilterBar from "./components/FilterBar.vue";
 import VariantTable from "./components/VariantTable.vue";
 import VariantDetail from "./components/VariantDetail.vue";
@@ -57,6 +49,7 @@ function hashPage() {
   return pages.some((x) => x.id === id) ? id : "overview";
 }
 const view = ref(hashPage());
+const importRequest = ref(0);
 const sidebarCollapsed = ref(false);
 const isNarrow = ref(window.innerWidth < 760);
 function resizeLayout() {
@@ -79,6 +72,11 @@ function navigate(id: string) {
   location.hash = id;
   success.value = "";
   window.scrollTo({ top: 0, behavior: "instant" });
+}
+function documentSection(id: string) {
+  document
+    .getElementById(id)
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function syncHash() {
   view.value = hashPage();
@@ -111,21 +109,6 @@ let generation = 0;
 const query = computed(() => filterQuery(applied.value));
 const exportUrl = computed(
   () => `/api/datasets/${selected.value}/export?${query.value}`,
-);
-const positions = computed(
-  () =>
-    stats.value?.positions.map((x) => ({
-      label: `${x.chromosome}:${x.bin + 1} Mb`,
-      value: x.value,
-    })) || [],
-);
-const typeDistribution = computed(() =>
-  ["SNV", "INSERTION", "DELETION", "COMPLEX", "UNSUPPORTED"].flatMap(
-    (type) => stats.value?.types.filter((x) => x.label === type) || [],
-  ),
-);
-const readyCount = computed(
-  () => datasets.value.filter((x) => x.status === "READY").length,
 );
 async function api(url: string, options?: RequestInit) {
   let r: Response;
@@ -225,11 +208,10 @@ function reset() {
   draft.value = emptyFilters();
   apply();
 }
-function chartFilter(key: "chrom" | "type", v: string) {
+function chartFilter(key: keyof Filters, v: string) {
   draft.value = { ...applied.value, [key]: v };
   applied.value = { ...draft.value };
   page.value = 0;
-  navigate("variants");
   load();
 }
 async function upload(payload: {
@@ -349,6 +331,7 @@ function changeDirection(value: string) {
 }
 watch(view, () => {
   detail.value = undefined;
+  if (view.value !== "datasets") importRequest.value = 0;
 });
 onMounted(() => {
   window.addEventListener("hashchange", syncHash);
@@ -431,10 +414,10 @@ onBeforeUnmount(() => {
           <UiIcon name="sidebar" />
         </button>
         <div class="toolbar-title">
-          <span>{{ currentPage.label }}</span><small
-            v-if="current && view !== 'datasets' && view !== 'about'"
-            >{{ current.name }}</small
-          >
+          <span>{{ currentPage.label }}</span
+          ><small v-if="current && view !== 'datasets' && view !== 'about'">{{
+            current.name
+          }}</small>
         </div>
         <div class="toolbar-actions">
           <button
@@ -453,7 +436,14 @@ onBeforeUnmount(() => {
           >
             <UiIcon name="refresh" /></button
           ><span class="toolbar-divider"></span
-          ><button class="button secondary" @click="navigate('datasets')">
+          ><button
+            class="button secondary"
+            :disabled="busy"
+            @click="
+              navigate('datasets');
+              importRequest++;
+            "
+          >
             <UiIcon name="plus" />导入 VCF
           </button>
         </div>
@@ -461,22 +451,9 @@ onBeforeUnmount(() => {
       <div class="page-content">
         <header class="page-heading">
           <div>
-            <p class="page-kicker">
-              {{
-                view === "overview"
-                  ? "数据摘要"
-                  : view === "analysis"
-                    ? "分析视图"
-                    : view === "datasets"
-                      ? "文件与样本"
-                      : view === "variants"
-                        ? "记录检视"
-                        : "方法与来源"
-              }}
-            </p>
             <h1>{{ currentPage.label }}</h1>
+            <p>{{ currentPage.description }}</p>
           </div>
-          <p class="page-description">{{ currentPage.description }}</p>
         </header>
         <div v-if="error" class="notice error" role="alert">
           <UiIcon name="info" />
@@ -515,108 +492,99 @@ onBeforeUnmount(() => {
           :datasets="datasets"
           :busy="busy"
           :progress="progress"
+          :import-request="importRequest"
           @upload="upload"
           @example="example"
           @open="openDataset"
           @reanalyze="reanalyze"
           @remove="pendingDelete = $event"
         />
-        <template v-else-if="view === 'about'"
-          ><div class="about-intro">
-            <span class="source-tag">关于 VariantScope</span>
-            <h2>让变异数据的每一步，<br />都有据可查。</h2>
-            <p>
-              从 VCF
-              原始记录到可复现的统计。保留数据来源，明确计算口径，让科研探索回到数据本身。
-            </p>
-          </div>
-          <div class="about-grid">
-            <section class="documentation-panel">
-              <h2>数据与计算</h2>
-              <dl class="method-list">
-                <dt>变异分类</dt>
-                <dd>
-                  每行 VCF 记录计一次。单碱基替换归为
-                  SNV；锚定的简单插入、缺失归为 InDel。多等位、符号 ALT
-                  与结构变异保留原文并标记限制，不进行拆分或临床推断。
-                </dd>
-                <dt>Ti/Tv</dt>
-                <dd>
-                  仅使用 A/C/G/T 的双等位 SNV。A↔G、C↔T
-                  为转换，其余为颠换。颠换数为零时显示“—”。
-                </dd>
-                <dt>QUAL 与 FILTER</dt>
-                <dd>
-                  质量分箱为
-                  [0,20)、[20,50)、[50,100)、[100,+∞)，缺失值单独统计。PASS、未提供“.”及其他过滤标签分别分组。
-                </dd>
-                <dt>位置分布</dt>
-                <dd>
-                  1-based 闭区间坐标，按 1 Mb 分箱；最多返回 10,000
-                  个非空箱，不代表覆盖深度。染色体名称不会自动合并。
-                </dd>
-              </dl>
-            </section>
-            <div>
-              <section class="documentation-panel">
-                <h2>公开示例来源</h2>
-                <p>NCBI ClinVar · GRCh38</p>
-                <p>
-                  保留公开 VCF 头部与前 1,000
-                  条记录，无个人样本列。属于局部截取，不能用于判断全基因组分布。参考版本仅在文件提供或用户指定时展示。
-                </p>
-                <a
-                  href="https://www.ncbi.nlm.nih.gov/clinvar/docs/maintenance_use/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-link"
-                  >ClinVar 数据使用政策<UiIcon name="external"
-                /></a>
-              </section>
-              <section class="documentation-panel">
-                <h2>支持范围与边界</h2>
-                <ul>
-                  <li>未压缩 VCF 4.x，单样本或无样本</li>
-                  <li>最大 100 MB / 100 万条记录</li>
-                  <li>除 GT 外的 FORMAT 仅展示原文</li>
-                  <li>不支持 BCF、多样本、变异归一化</li>
-                  <li>不提供医学诊断或系统致病性推断</li>
-                </ul>
-              </section>
-            </div>
+        <template v-else-if="view === 'about'">
+          <div class="docs-layout">
+            <aside class="docs-index">
+              <span>本页内容</span
+              ><a href="#methods" @click.prevent="documentSection('methods')"
+                >指标与计算</a
+              ><a href="#source" @click.prevent="documentSection('source')"
+                >数据来源</a
+              ><a href="#limits" @click.prevent="documentSection('limits')"
+                >支持边界</a
+              >
+            </aside>
+            <article class="docs-article">
+              <p class="doc-lead">
+                从 VCF 原始记录到可复现的统计，保留来源，明确每一步计算的边界。
+              </p>
+              <div class="about-grid">
+                <section class="documentation-panel" id="methods">
+                  <h2>数据与计算</h2>
+                  <dl class="method-list">
+                    <dt>变异分类</dt>
+                    <dd>
+                      每行 VCF 记录计一次。单碱基替换归为
+                      SNV；锚定的简单插入、缺失归为 InDel。多等位、符号 ALT
+                      与结构变异保留原文并标记限制，不进行拆分或临床推断。
+                    </dd>
+                    <dt>Ti/Tv</dt>
+                    <dd>
+                      仅使用 A/C/G/T 的双等位 SNV。A↔G、C↔T
+                      为转换，其余为颠换。颠换数为零时显示“—”。
+                    </dd>
+                    <dt>QUAL 与 FILTER</dt>
+                    <dd>
+                      质量分箱为
+                      [0,20)、[20,50)、[50,100)、[100,+∞)，缺失值单独统计。PASS、未提供“.”及其他过滤标签分别分组。
+                    </dd>
+                    <dt>位置分布</dt>
+                    <dd>
+                      1-based 闭区间坐标，按 1 Mb 分箱；最多返回 10,000
+                      个非空箱，不代表覆盖深度。染色体名称不会自动合并。
+                    </dd>
+                  </dl>
+                </section>
+                <div>
+                  <section class="documentation-panel" id="source">
+                    <h2>公开示例来源</h2>
+                    <p>NCBI ClinVar · GRCh38</p>
+                    <p>
+                      保留公开 VCF 头部与前 1,000
+                      条记录，无个人样本列。属于局部截取，不能用于判断全基因组分布。参考版本仅在文件提供或用户指定时展示。
+                    </p>
+                    <a
+                      href="https://www.ncbi.nlm.nih.gov/clinvar/docs/maintenance_use/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-link"
+                      >ClinVar 数据使用政策<UiIcon name="external"
+                    /></a>
+                  </section>
+                  <section class="documentation-panel" id="limits">
+                    <h2>支持范围与边界</h2>
+                    <ul>
+                      <li>未压缩 VCF 4.x，单样本或无样本</li>
+                      <li>最大 100 MB / 100 万条记录</li>
+                      <li>除 GT 外的 FORMAT 仅展示原文</li>
+                      <li>不支持 BCF、多样本、变异归一化</li>
+                      <li>不提供医学诊断或系统致病性推断</li>
+                    </ul>
+                  </section>
+                </div>
+              </div>
+            </article>
           </div></template
         >
-        <template v-else
-          ><div
-            :class="[
-              'dataset-section',
-              { 'overview-summary': view === 'overview' },
-            ]"
-          >
-            <DatasetContext
-              :datasets="datasets"
-              :current="current"
-              :selected="selected"
-              @select="choose"
-            /><MetricSummary
-              v-if="stats && view === 'overview'"
-              :stats="stats"
-            />
-            <div v-if="stats && view === 'overview'" class="overview-note">
-              <UiIcon name="info" />{{
-                stats.chromosomes.length === 1
-                  ? "当前数据仅包含一个 Contig，分布不代表全基因组覆盖。"
-                  : "按文件中的染色体标识分组，未自动合并命名。"
-              }}<button class="text-button" @click="navigate('about')">
-                计算口径
-              </button>
-            </div>
-          </div>
-          <LoadingSkeleton v-if="busy && !stats && view !== 'datasets'" />
+        <template v-else>
+          <DatasetContext
+            :datasets="datasets"
+            :current="current"
+            :selected="selected"
+            @select="choose"
+          />
+          <LoadingSkeleton v-if="busy && !stats" />
           <div v-if="!selected && !busy" class="empty-state page-empty">
             <UiIcon name="datasets" />
             <h2>从一份 VCF 开始探索</h2>
-            <p>导入真实变异记录后，即可查看分布、质量与逐条详情。</p>
+            <p>导入真实变异记录，查看分布、质量与逐条详情。</p>
             <button class="button primary" @click="navigate('datasets')">
               导入第一个数据集
             </button>
@@ -638,133 +606,83 @@ onBeforeUnmount(() => {
               查看数据集状态
             </button>
           </div>
-          <template v-else>
+          <template v-else-if="selected">
             <FilterBar
               v-if="view !== 'overview'"
               v-model="draft"
               :applied="applied"
               :busy="busy"
               @apply="apply"
-              @reset="reset" />
+              @reset="reset"
+            />
             <div
-              :class="['analysis-results', { refreshing: loading }]"
+              class="analysis-results"
+              :class="{ refreshing: loading }"
               :aria-busy="loading"
             >
-              <MetricSummary
-                v-if="stats && view !== 'overview'"
+              <OverviewView
+                v-if="view === 'overview' && stats"
                 :stats="stats"
-                :compact="view === 'variants'"
+                :datasets="datasets"
+                :filtered="!!query"
+                @navigate="navigate"
+                @open="openDataset"
+                @reset="reset"
               />
-              <VariantTable
-                v-if="view === 'variants'"
-                :rows="rows"
-                :total="total"
-                :page="page"
-                :busy="busy"
-                :sort="sort"
-                :direction="direction"
-                :export-url="exportUrl"
-                :active-id="detail?.id"
-                @open="detail = $event"
-                @page="
-                  page = $event;
-                  load(true);
-                "
-                @sort="changeSort"
-                @direction="changeDirection"
-              />
-              <template v-else-if="stats"
-                ><div class="analysis-section-heading">
-                  <h2>{{ view === "overview" ? "数据分布" : "分布与质量" }}</h2>
+              <template v-else-if="view === 'variants'">
+                <div v-if="stats" class="browser-scope">
                   <span
-                    >{{ query ? "已应用筛选" : "全部记录" }} ·
-                    {{ stats.chromosomes.length }} 个 Contig</span
-                  >
+                    ><strong>{{ number(stats.total) }}</strong> 条匹配记录</span
+                  ><span>{{ stats.chromosomes.length }} 个 Contig</span
+                  ><span
+                    >Ti/Tv
+                    {{ stats.titv == null ? "—" : stats.titv.toFixed(3) }}</span
+                  ><span class="muted">坐标 1-based · REF / ALT 保留原文</span>
                 </div>
                 <div
-                  :class="[
-                    'chart-grid',
-                    { 'overview-grid': view === 'overview' },
-                  ]"
+                  class="browser-workspace"
+                  :class="{ 'has-inspector': detail }"
                 >
-                  <Chart
-                    title="染色体分布"
-                    description="各 Contig 的实际变异记录"
-                    :data="stats.chromosomes"
-                    interactive
-                    @select="chartFilter('chrom', $event)"
-                  /><Chart
-                    title="变异类型"
-                    description="数量与占比 · 包含未分类记录"
-                    kind="types"
-                    :data="typeDistribution"
-                    interactive
-                    @select="chartFilter('type', $event)"
-                  /><Chart
-                    title="碱基替换"
-                    description="12 种有向替换，不进行互补折叠"
-                    :data="stats.substitutions"
-                    note="绿色：转换 · 蓝色：颠换"
-                  /><Chart
-                    title="质量分数"
-                    description="QUAL 区间分布，缺失值独立统计"
-                    :data="stats.quality"
-                    note="半开区间 [下界, 上界)，Missing 表示未提供"
-                  /><template v-if="view === 'analysis'"
-                    ><Chart
-                      title="FILTER 状态"
-                      description="按原始过滤标签分别统计"
-                      :data="stats.filters"
-                      note="“.” 表示未提供，不等同于 PASS" /><Chart
-                      title="基因组位置"
-                      description="按染色体与 1 Mb 非空位置箱汇总"
-                      :data="positions"
-                      note="最多 10,000 个非空箱 · 不代表覆盖深度"
-                  /></template>
+                  <VariantTable
+                    :rows="rows"
+                    :total="total"
+                    :page="page"
+                    :busy="busy"
+                    :sort="sort"
+                    :direction="direction"
+                    :export-url="exportUrl"
+                    :active-id="detail?.id"
+                    @open="detail = $event"
+                    @page="
+                      page = $event;
+                      load(true);
+                    "
+                    @sort="changeSort"
+                    @direction="changeDirection"
+                  />
+                  <VariantDetail
+                    v-if="detail"
+                    :key="detail.id"
+                    :variant="detail"
+                    inline
+                    @close="detail = undefined"
+                  />
                 </div>
-                <p class="analysis-footnote">
-                  <UiIcon name="info" />范围与已应用的筛选一致。Ti/Tv
-                  仅计标准碱基双等位 SNV，无法计算时显示“—”。
-                </p>
-                <section v-if="view === 'overview'" class="recent-panel">
-                  <header>
-                    <h2>最近导入</h2>
-                    <button class="text-button" @click="navigate('datasets')">
-                      管理数据集
-                    </button>
-                  </header>
-                  <button
-                    v-for="d in datasets.slice(0, 4)"
-                    :key="d.id"
-                    class="recent-row"
-                    :disabled="d.status !== 'READY'"
-                    @click="openDataset(d)"
-                  >
-                    <UiIcon name="file" /><span class="recent-name"
-                      >{{ d.name
-                      }}<small>{{
-                        d.reference_name || "参考版本未提供"
-                      }}</small></span
-                    ><span class="tabular"
-                      >{{ number(d.record_count) }}<small>条记录</small></span
-                    ><StatusBadge :status="d.status" /><time>{{
-                      dateTime(d.created)
-                    }}</time
-                    ><UiIcon name="chevron" />
-                  </button></section
-              ></template></div></template
-        ></template>
+              </template>
+              <AnalysisView
+                v-else-if="view === 'analysis' && stats"
+                :stats="stats"
+                @filter="chartFilter"
+              />
+            </div>
+          </template>
+        </template>
         <footer class="page-footer">
           <span>VariantScope · 保留来源，理解变异</span
           ><span>仅用于教学与科研探索，不用于临床诊断</span>
         </footer>
       </div>
     </main>
-    <VariantDetail
-      v-if="detail"
-      :variant="detail"
-      @close="detail = undefined"
-    />
     <UiDialog
       v-if="pendingDelete"
       title="删除数据集"
@@ -775,7 +693,8 @@ onBeforeUnmount(() => {
       "
       ><div class="confirm-body">
         <p>
-          确认删除 <strong>{{ pendingDelete.name }}</strong>？
+          确认删除 <strong>{{ pendingDelete.name }}</strong
+          >？
         </p>
         <p class="muted">
           这将同时删除

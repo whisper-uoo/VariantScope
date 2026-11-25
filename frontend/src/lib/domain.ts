@@ -68,9 +68,9 @@ export const typeNames: Record<string, string> = {
   UNSUPPORTED: "未分类",
 };
 export const typeColors: Record<string, string> = {
-  SNV: "#318779",
-  INSERTION: "#6789b9",
-  DELETION: "#b28b57",
+  SNV: "#7970d8",
+  INSERTION: "#559d91",
+  DELETION: "#bf9461",
   COMPLEX: "#9280ae",
   UNSUPPORTED: "#92999f",
 };
@@ -124,4 +124,13 @@ export function infoEntries(info: string) {
 }
 export function groupCount(stats: Statistics, type: string) {
   return stats.types.find((x) => x.label === type)?.value || 0;
+}
+
+export function orderedTypes(data: Distribution[]) {
+  const order = ["SNV", "INSERTION", "DELETION", "COMPLEX", "UNSUPPORTED"];
+  return [...data].sort(
+    (a, b) =>
+      (order.includes(a.label) ? order.indexOf(a.label) : 99) -
+      (order.includes(b.label) ? order.indexOf(b.label) : 99),
+  );
 }

@@ -17,7 +17,7 @@ const indel = computed(
       <div class="metric-value">
         {{ number(stats.total) }}<span class="metric-unit">条</span>
       </div>
-      <p v-if="!compact">当前数据集与已应用的筛选范围</p>
+      <p v-if="!compact">当前分析范围</p>
     </div>
     <div class="metric-secondary">
       <span class="metric-label"
@@ -29,7 +29,7 @@ const indel = computed(
     <div class="metric-secondary">
       <span class="metric-label">插入与缺失</span>
       <div class="metric-value">{{ number(indel) }}</div>
-      <p>{{ percentage(indel, stats.total) }}<span>插入与缺失</span></p>
+      <p>{{ percentage(indel, stats.total) }}<span>占当前范围</span></p>
     </div>
     <div class="metric-secondary">
       <span class="metric-label"
