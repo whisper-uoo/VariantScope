@@ -1,6 +1,7 @@
 <script setup lang="ts">
 defineProps<{ name: string }>();
 const paths: Record<string, string[]> = {
+  sidebar: ["M3 4h18v16H3z", "M9 4v16", "M5.5 8h1", "M5.5 12h1"],
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
   datasets: ["M4 5h16v15H4z", "M8 2v6", "M16 2v6", "M4 11h16"],
   variants: [

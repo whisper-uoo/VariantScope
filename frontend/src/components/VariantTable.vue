@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import type { Variant } from "../lib/domain";
 import { number, typeNames } from "../lib/domain";
 import UiIcon from "./UiIcon.vue";
@@ -12,6 +13,7 @@ defineProps<{
   exportUrl: string;
   activeId?: number;
 }>();
+const selectedId = ref<number>();
 const emit = defineEmits<{
   open: [Variant];
   page: [number];
@@ -95,14 +97,21 @@ const emit = defineEmits<{
           <tr
             v-for="row in rows"
             :key="row.id"
-            :class="{ selected: activeId === row.id }"
-            @click="emit('open', row)"
+            :aria-selected="(activeId ?? selectedId) === row.id"
+            :class="{ selected: (activeId ?? selectedId) === row.id }"
+            @click="
+              selectedId = row.id;
+              emit('open', row);
+            "
           >
             <td class="mono">{{ row.chrom }}</td>
             <td class="numeric">
               <button
                 class="coordinate mono"
-                @click.stop="emit('open', row)"
+                @click.stop="
+                  selectedId = row.id;
+                  emit('open', row);
+                "
                 :aria-label="`查看 ${row.chrom}:${row.pos} 变异详情`"
               >
                 {{ number(row.pos) }}

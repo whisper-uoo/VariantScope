@@ -13,7 +13,7 @@ const emit = defineEmits<{ select: [number | undefined] }>();
         <UiIcon name="datasets" />
       </span>
       <div class="context-select">
-        <label for="active-dataset">当前数据集</label>
+        <label for="active-dataset">分析中的文件</label>
         <select
           id="active-dataset"
           :title="current?.name"

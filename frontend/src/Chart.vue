@@ -6,6 +6,7 @@ import {
   GridComponent,
   TooltipComponent,
   DataZoomComponent,
+  GraphicComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { Distribution } from "./lib/domain";
@@ -16,6 +17,7 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   DataZoomComponent,
+  GraphicComponent,
   CanvasRenderer,
 ]);
 const props = withDefaults(
@@ -33,165 +35,260 @@ const emit = defineEmits<{ select: [string] }>();
 const el = ref<HTMLElement>();
 let chart: echarts.ECharts | undefined;
 let observer: ResizeObserver | undefined;
-const total = computed(() => props.data.reduce((s, x) => s + x.value, 0));
-const accessibleSummary = computed(() =>
+let motion: MediaQueryList | undefined;
+const total = computed(() => props.data.reduce((sum, x) => sum + x.value, 0));
+const single = computed(
+  () => props.kind !== "types" && props.data.length === 1,
+);
+const isMissing = computed(
+  () => single.value && ["Missing", "."].includes(props.data[0].label),
+);
+const summary = computed(() =>
   props.data
-    .map((x) => `${typeNames[x.label] || x.label}: ${number(x.value)}`)
+    .map((x) => `${typeNames[x.label] || x.label}：${number(x.value)}`)
     .join("；"),
 );
+const dominant = computed(
+  () => [...props.data].sort((a, b) => b.value - a.value)[0],
+);
+const chartLabel = (s: string) =>
+  s === "Missing"
+    ? "未提供 QUAL"
+    : s === "."
+      ? "未提供（.）"
+      : typeNames[s] || s;
+const font =
+  '-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif';
 function render() {
   if (!chart || !el.value) return;
-  const horizontal = props.kind === "types";
-  const crowded = props.data.length > 12;
-  const mobile = el.value.clientWidth < 420;
-  const data = props.data.map((x) => ({
-    name: typeNames[x.label] || x.label,
-    value: x.value,
-    itemStyle: {
-      color: horizontal
-        ? typeColors[x.label] || "#318779"
-        : props.title.includes("替换")
-          ? (
-              {
-                "A>C": "#8397b6",
-                "A>G": "#318779",
-                "A>T": "#8397b6",
-                "C>A": "#8397b6",
-                "C>G": "#8397b6",
-                "C>T": "#318779",
-                "G>A": "#318779",
-                "G>C": "#8397b6",
-                "G>T": "#8397b6",
-                "T>A": "#8397b6",
-                "T>C": "#318779",
-                "T>G": "#8397b6",
-              } as Record<string, string>
-            )[x.label] || "#318779"
-          : "#318779",
-    },
-  }));
-  const category = {
-    type: "category" as const,
-    data: data.map((x) => x.name),
-    axisLine: { show: false },
-    axisTick: { show: false },
-    axisLabel: {
-      color: "#697277",
-      fontSize: 12,
-      margin: 12,
-      interval: crowded ? "auto" : 0,
-      rotate: !horizontal && props.data.length > 8 && mobile ? 40 : 0,
-      hideOverlap: true,
-    },
-    inverse: horizontal,
-  };
-  const value = {
-    type: "value" as const,
-    minInterval: 1,
-    axisLabel: {
-      color: "#8a9297",
-      fontSize: 12,
-      formatter: (n: number) =>
-        n >= 1000000
-          ? `${n / 1000000}m`
-          : n >= 1000
-            ? `${n / 1000}k`
-            : String(n),
-    },
-    splitLine: { lineStyle: { color: "#edf0f1", type: "dashed" as const } },
-  };
-  chart.setOption(
-    {
-      animationDuration: 250,
-      textStyle: {
-        fontFamily:
-          "Inter Variable, PingFang SC, Source Han Sans SC, sans-serif",
+  const w = el.value.clientWidth;
+  const types = props.kind === "types";
+  const crowded = props.data.length > 18;
+  const small = w < 420;
+  const color = "#6385aa";
+  const base: any = {
+    animation: !motion?.matches,
+    animationDuration: 180,
+    textStyle: { fontFamily: font, color: "#4c5360" },
+    tooltip: {
+      trigger: types || single.value ? "item" : "axis",
+      confine: true,
+      renderMode: "richText",
+      backgroundColor: "#fafaf9",
+      borderColor: "#d4d6dc",
+      borderWidth: 1,
+      padding: [10, 13],
+      textStyle: { color: "#323b46", fontFamily: font, fontSize: 13 },
+      axisPointer: { type: "shadow", shadowStyle: { color: "#587ca20b" } },
+      formatter: (input: any) => {
+        const x = Array.isArray(input) ? input[0] : input;
+        return `${chartLabel(x.seriesName && types ? x.seriesName : x.name)}\n${number(x.value)} 条${types ? " · " + percentage(x.value, total.value) : ""}`;
       },
-      tooltip: {
-        trigger: "axis",
-        confine: true,
-        renderMode: "richText",
-        backgroundColor: "#202b30",
-        borderWidth: 0,
-        textStyle: { color: "#fff", fontSize: 13 },
-        padding: [10, 13],
-        axisPointer: {
-          type: horizontal ? "shadow" : "line",
-          lineStyle: { color: "#c0d0cc" },
-          shadowStyle: { color: "#3187790b" },
-        },
-        formatter: (params: any) => {
-          const x = params[0];
-          return `${x.name}\n${number(x.value)} 条${horizontal ? `  ·  ${percentage(x.value, total.value)}` : ""}`;
-        },
+    },
+    graphic: [],
+    dataZoom: [],
+    grid: { left: 38, right: 15, top: 20, bottom: crowded ? 55 : 34 },
+    xAxis: {
+      type: "category",
+      data: props.data.map((x) => chartLabel(x.label)),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        fontSize: 12,
+        color: "#747b86",
+        margin: 12,
+        interval: "auto",
+        rotate: small && props.data.length > 8 ? 35 : 0,
+        hideOverlap: true,
       },
-      grid: {
-        left: horizontal ? 88 : 42,
-        right: horizontal ? 90 : 15,
-        top: 18,
-        bottom: crowded ? 65 : 36,
-        containLabel: false,
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      minInterval: 1,
+      splitNumber: 3,
+      axisLabel: {
+        fontSize: 11,
+        color: "#747b86",
+        formatter: (v: number) =>
+          v >= 1e6 ? `${v / 1e6}m` : v >= 1000 ? `${v / 1000}k` : String(v),
       },
-      xAxis: horizontal ? value : category,
-      yAxis: horizontal ? category : value,
-      dataZoom: crowded
-        ? [
-            {
-              type: "slider",
-              height: 15,
-              bottom: 4,
-              start: 0,
-              end: Math.min(100, 1200 / props.data.length),
-              borderColor: "transparent",
-              backgroundColor: "#f1f4f3",
-              fillerColor: "#d1e4df",
-              handleStyle: { color: "#7ba99d" },
-              textStyle: { fontSize: 11 },
-            },
-          ]
-        : [],
-      series: [
-        {
-          type: "bar",
-          barMaxWidth: horizontal ? 15 : 30,
-          showBackground: horizontal,
-          backgroundStyle: { color: "#f3f5f4", borderRadius: 2 },
-          itemStyle: { borderRadius: horizontal ? [0, 2, 2, 0] : [2, 2, 0, 0] },
-          cursor: props.interactive ? "pointer" : "default",
-          emphasis: { itemStyle: { opacity: 0.8 } },
-          label: {
-            show: horizontal,
-            position: "right",
-            distance: 10,
-            color: "#4f5b62",
-            fontSize: 12,
-            formatter: (p: any) =>
-              `${number(p.value)}  ·  ${percentage(p.value, total.value)}`,
+      splitLine: { lineStyle: { color: "#e5e8ee", type: "solid" } },
+    },
+    series: [
+      {
+        type: "bar",
+        barMaxWidth: 25,
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        cursor: props.interactive ? "pointer" : "default",
+        emphasis: { itemStyle: { opacity: 0.75 } },
+        data: props.data.map((x) => ({
+          name: x.label,
+          value: x.value,
+          itemStyle: {
+            color:
+              props.title === "碱基替换"
+                ? new Set(["A>G", "G>A", "C>T", "T>C"]).has(x.label)
+                  ? "#7a9e8c"
+                  : "#9da9c0"
+                : color,
           },
-          data,
+        })),
+      },
+    ],
+  };
+  if (crowded)
+    base.dataZoom = [
+      {
+        type: "slider",
+        height: 14,
+        bottom: 2,
+        start: 0,
+        end: Math.min(100, 1800 / props.data.length),
+        borderColor: "transparent",
+        fillerColor: "#cfdae8",
+        backgroundColor: "#edf0f5",
+        textStyle: { fontSize: 11 },
+      },
+    ];
+  if (types) {
+    base.grid = { left: 0, right: 0, top: 18, height: 16 };
+    base.xAxis = { type: "value", min: 0, max: total.value || 1, show: false };
+    base.yAxis = { type: "category", data: ["类型构成"], show: false };
+    base.series = props.data.map((x) => ({
+      name: x.label,
+      type: "bar",
+      stack: "total",
+      barWidth: 16,
+      cursor: props.interactive ? "pointer" : "default",
+      itemStyle: { color: typeColors[x.label] || "#a3a7b3" },
+      emphasis: { itemStyle: { opacity: 0.75 } },
+      data: [{ name: x.label, value: x.value }],
+    }));
+    base.graphic = props.data.flatMap((x, i) => {
+      const y = 65 + i * 32;
+      return [
+        {
+          type: "circle",
+          shape: { cx: 5, cy: y + 5, r: 3 },
+          style: { fill: typeColors[x.label] || "#a3a7b3" },
+          silent: true,
         },
-      ],
-    },
-    true,
-  );
+        {
+          type: "text",
+          left: 17,
+          top: y - 2,
+          style: {
+            text: chartLabel(x.label),
+            font: `13px ${font}`,
+            fill: "#555e69",
+          },
+          cursor: props.interactive ? "pointer" : "default",
+          onclick: () => {
+            if (props.interactive) emit("select", x.label);
+          },
+        },
+        {
+          type: "text",
+          right: 73,
+          top: y - 2,
+          style: {
+            text: number(x.value),
+            font: `500 13px ${font}`,
+            fill: "#3c4652",
+            align: "right",
+          },
+          silent: true,
+        },
+        {
+          type: "text",
+          right: 0,
+          top: y - 2,
+          style: {
+            text: percentage(x.value, total.value),
+            font: `12px ${font}`,
+            fill: "#7b838f",
+            align: "right",
+          },
+          silent: true,
+        },
+      ];
+    });
+  } else if (single.value) {
+    const x = props.data[0];
+    base.grid = { left: 0, right: 0, top: 57, height: 9 };
+    base.xAxis = { type: "value", min: 0, max: x.value || 1, show: false };
+    base.yAxis = { type: "category", data: [x.label], show: false };
+    base.series = [
+      {
+        type: "bar",
+        barWidth: 9,
+        showBackground: true,
+        backgroundStyle: { color: "#e9edf2", borderRadius: 5 },
+        cursor: props.interactive ? "pointer" : "default",
+        itemStyle: {
+          color: isMissing.value ? "#a9b1bf" : color,
+          borderRadius: 5,
+        },
+        data: [{ name: x.label, value: x.value }],
+      },
+    ];
+    base.graphic = [
+      {
+        type: "text",
+        left: 0,
+        top: 13,
+        style: {
+          text: chartLabel(x.label),
+          font: `500 15px ${font}`,
+          fill: "#555e6a",
+        },
+        silent: true,
+      },
+      {
+        type: "text",
+        right: 0,
+        top: 8,
+        style: {
+          text: `${number(x.value)} 条`,
+          font: `500 23px ${font}`,
+          fill: "#3d4c61",
+        },
+        silent: true,
+      },
+      {
+        type: "text",
+        left: 0,
+        top: 82,
+        style: {
+          text: isMissing.value
+            ? "缺失记录单独统计，不替换为 0"
+            : props.title === "染色体分布"
+              ? "当前范围仅包含这一个 Contig"
+              : "当前范围仅有这一个分组",
+          font: `12px ${font}`,
+          fill: "#6b7582",
+        },
+        silent: true,
+      },
+    ];
+  }
+  chart.setOption(base, true);
 }
 onMounted(() => {
+  motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   chart = echarts.init(el.value!);
   chart.on("click", (event: any) => {
-    if (props.interactive) {
-      const i = event.dataIndex;
-      emit("select", props.data[i].label);
-    }
+    if (!props.interactive || event.componentType === "graphic") return;
+    const i = props.kind === "types" ? event.seriesIndex : event.dataIndex;
+    const d = props.data[i];
+    if (d) emit("select", d.label);
   });
   observer = new ResizeObserver(() => {
     chart?.resize();
     render();
   });
   observer.observe(el.value!);
-  document.fonts?.ready.then(() => {
-    chart?.resize();
-    render();
-  });
   render();
 });
 watch(() => [props.data, props.kind], render, { deep: true });
@@ -201,18 +298,27 @@ onBeforeUnmount(() => {
 });
 function download() {
   if (!chart) return;
-  const link = document.createElement("a");
-  link.href = chart.getDataURL({
+  const a = document.createElement("a");
+  a.href = chart.getDataURL({
     type: "png",
     pixelRatio: 2,
     backgroundColor: "#fff",
   });
-  link.download = props.title + ".png";
-  link.click();
+  a.download = props.title + ".png";
+  a.click();
 }
 </script>
 <template>
-  <section class="chart-panel" :class="{ 'type-chart': kind === 'types' }">
+  <section
+    :class="[
+      'chart-panel',
+      {
+        'type-chart': kind === 'types',
+        'single-chart': single,
+        'no-data-chart': !data.length,
+      },
+    ]"
+  >
     <header class="chart-heading">
       <div>
         <h2>{{ title }}</h2>
@@ -231,17 +337,42 @@ function download() {
     <div
       ref="el"
       class="plot"
+      :style="{
+        height:
+          kind === 'types'
+            ? `${Math.max(120, data.length * 32 + 60)}px`
+            : single
+              ? '112px'
+              : '218px',
+      }"
       role="img"
-      :aria-label="`${title}。${accessibleSummary || '当前范围无数据'}`"
+      :aria-label="`${title}。${summary || '当前范围无数据'}`"
     ></div>
-    <div v-if="!data.length" class="chart-empty">当前范围无可用数据</div>
+    <div v-if="!data.length" class="chart-empty">
+      <UiIcon name="analysis" /><span>当前范围无可用数据</span>
+    </div>
+    <div class="type-insight" v-if="kind === 'types' && dominant && total > 0">
+      <strong
+        >{{ typeNames[dominant.label] || dominant.label }} 占
+        {{ percentage(dominant.value, total) }}</strong
+      >
+      <p>
+        其余
+        {{ number(total - dominant.value) }}
+        条记录按原始分类列出。比例带保持线性比例，不放大小类别。
+      </p>
+    </div>
     <footer class="chart-footer">
-      <span v-if="note">{{ note }}</span
-      ><span v-else>{{
-        kind === "types" ? "每条记录仅归入一个类型" : "纵轴为变异记录数"
+      <span>{{
+        note ||
+        (kind === "types"
+          ? "比例带按真实数量绘制，未放大小类别"
+          : single
+            ? "分组与范围由当前数据决定"
+            : "纵轴：变异记录数")
       }}</span>
       <details v-if="data.length" class="chart-values">
-        <summary>{{ interactive ? "查看数值 / 筛选" : "查看数值" }}</summary>
+        <summary>{{ interactive ? "数值与筛选" : "查看数值" }}</summary>
         <div class="value-list">
           <component
             :is="interactive ? 'button' : 'div'"
@@ -253,7 +384,7 @@ function download() {
                 if (interactive) emit('select', x.label);
               }
             "
-            ><span>{{ typeNames[x.label] || x.label }}</span
+            ><span>{{ chartLabel(x.label) }}</span
             ><span class="tabular"
               >{{ number(x.value)
               }}<small v-if="kind === 'types'">{{

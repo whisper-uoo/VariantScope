@@ -9,6 +9,7 @@ import {
 } from "vue";
 const Chart = defineAsyncComponent(() => import("./Chart.vue"));
 import UiIcon from "./components/UiIcon.vue";
+import LoadingSkeleton from "./components/LoadingSkeleton.vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import DatasetContext from "./components/DatasetContext.vue";
 import MetricSummary from "./components/MetricSummary.vue";
@@ -56,8 +57,24 @@ function hashPage() {
   return pages.some((x) => x.id === id) ? id : "overview";
 }
 const view = ref(hashPage());
+const sidebarCollapsed = ref(false);
+const isNarrow = ref(window.innerWidth < 760);
+function resizeLayout() {
+  isNarrow.value = window.innerWidth < 760;
+  if (!isNarrow.value) navOpen.value = false;
+}
+const navOpen = ref(false);
+function toggleSidebar() {
+  if (window.innerWidth < 760) navOpen.value = !navOpen.value;
+  else sidebarCollapsed.value = !sidebarCollapsed.value;
+}
+function closeNavigation(event: KeyboardEvent) {
+  if (event.key === "Escape") navOpen.value = false;
+}
+
 const currentPage = computed(() => pages.find((x) => x.id === view.value)!);
 function navigate(id: string) {
+  navOpen.value = false;
   view.value = id;
   location.hash = id;
   success.value = "";
@@ -332,14 +349,25 @@ watch(view, () => {
 });
 onMounted(() => {
   window.addEventListener("hashchange", syncHash);
+  window.addEventListener("keydown", closeNavigation);
+  window.addEventListener("resize", resizeLayout);
   refreshList()
     .catch((e) => (error.value = e.message))
     .finally(() => (initializing.value = false));
 });
-onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
+onBeforeUnmount(() => {
+  window.removeEventListener("hashchange", syncHash);
+  window.removeEventListener("keydown", closeNavigation);
+  window.removeEventListener("resize", resizeLayout);
+});
 </script>
 <template>
-  <div class="app-shell">
+  <div
+    :class="[
+      'app-shell',
+      { 'sidebar-collapsed': sidebarCollapsed, 'nav-open': navOpen },
+    ]"
+  >
     <aside class="sidebar">
       <a class="brand" href="#overview" @click.prevent="navigate('overview')"
         ><span class="brand-mark"
@@ -352,14 +380,15 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
             /></svg></span
         ><span>VariantScope<small>基因变异分析</small></span></a
       >
-      <div class="nav-caption">工作空间</div>
+      <div class="nav-caption">资料库</div>
       <nav aria-label="主导航">
         <a
           v-for="p in pages.slice(0, 4)"
           :key="p.id"
           :href="'#' + p.id"
           :aria-current="view === p.id ? 'page' : undefined"
-          :class="['nav-item', { active: view === p.id }]"
+          :class="['nav-item', p.id, { active: view === p.id }]"
+          :title="p.label"
           @click.prevent="navigate(p.id)"
           ><UiIcon :name="p.icon" /><span>{{ p.label }}</span
           ><span
@@ -390,28 +419,61 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
     </aside>
     <main class="main-content">
       <header class="workspace-header">
-        <div>
-          <span class="workspace-name">基因组工作空间</span
-          ><span class="breadcrumb-slash">/</span
-          ><span>{{ currentPage.label }}</span>
+        <button
+          class="icon-button sidebar-toggle"
+          aria-label="切换侧边栏"
+          :aria-expanded="isNarrow ? navOpen : !sidebarCollapsed"
+          @click="toggleSidebar"
+        >
+          <UiIcon name="sidebar" />
+        </button>
+        <div class="toolbar-title">
+          <span>{{ currentPage.label }}</span><small
+            v-if="current && view !== 'datasets' && view !== 'about'"
+            >{{ current.name }}</small
+          >
         </div>
-        <span class="header-note">VCF 4.x <i></i>本地数据分析</span>
+        <div class="toolbar-actions">
+          <button
+            class="icon-button"
+            title="浏览变异"
+            aria-label="浏览变异"
+            @click="navigate('variants')"
+          >
+            <UiIcon name="search" /></button
+          ><button
+            class="icon-button"
+            title="刷新数据"
+            aria-label="刷新数据"
+            :disabled="busy"
+            @click="retry"
+          >
+            <UiIcon name="refresh" /></button
+          ><span class="toolbar-divider"></span
+          ><button class="button secondary" @click="navigate('datasets')">
+            <UiIcon name="plus" />导入 VCF
+          </button>
+        </div>
       </header>
       <div class="page-content">
         <header class="page-heading">
           <div>
+            <p class="page-kicker">
+              {{
+                view === "overview"
+                  ? "数据摘要"
+                  : view === "analysis"
+                    ? "分析视图"
+                    : view === "datasets"
+                      ? "文件与样本"
+                      : view === "variants"
+                        ? "记录检视"
+                        : "方法与来源"
+              }}
+            </p>
             <h1>{{ currentPage.label }}</h1>
-            <p>{{ currentPage.description }}</p>
           </div>
-          <button
-            v-if="view !== 'datasets'"
-            class="button primary"
-            @click="navigate('datasets')"
-          >
-            <UiIcon name="plus" />导入数据集</button
-          ><span v-else class="subtle-label"
-            >{{ readyCount }} 个就绪数据集</span
-          >
+          <p class="page-description">{{ currentPage.description }}</p>
         </header>
         <div v-if="error" class="notice error" role="alert">
           <UiIcon name="info" />
@@ -522,11 +584,32 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
           </div></template
         >
         <template v-else
-          ><DatasetContext
-            :datasets="datasets"
-            :current="current"
-            :selected="selected"
-            @select="choose" />
+          ><div
+            :class="[
+              'dataset-section',
+              { 'overview-summary': view === 'overview' },
+            ]"
+          >
+            <DatasetContext
+              :datasets="datasets"
+              :current="current"
+              :selected="selected"
+              @select="choose"
+            /><MetricSummary
+              v-if="stats && view === 'overview'"
+              :stats="stats"
+            />
+            <div v-if="stats && view === 'overview'" class="overview-note">
+              <UiIcon name="info" />{{
+                stats.chromosomes.length === 1
+                  ? "当前数据仅包含一个 Contig，分布不代表全基因组覆盖。"
+                  : "按文件中的染色体标识分组，未自动合并命名。"
+              }}<button class="text-button" @click="navigate('about')">
+                计算口径
+              </button>
+            </div>
+          </div>
+          <LoadingSkeleton v-if="busy && !stats && view !== 'datasets'" />
           <div v-if="!selected && !busy" class="empty-state page-empty">
             <UiIcon name="datasets" />
             <h2>从一份 VCF 开始探索</h2>
@@ -565,7 +648,7 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
               :aria-busy="loading"
             >
               <MetricSummary
-                v-if="stats"
+                v-if="stats && view !== 'overview'"
                 :stats="stats"
                 :compact="view === 'variants'"
               />
@@ -595,10 +678,15 @@ onBeforeUnmount(() => window.removeEventListener("hashchange", syncHash));
                     {{ stats.chromosomes.length }} 个 Contig</span
                   >
                 </div>
-                <div class="chart-grid">
+                <div
+                  :class="[
+                    'chart-grid',
+                    { 'overview-grid': view === 'overview' },
+                  ]"
+                >
                   <Chart
                     title="染色体分布"
-                    description="各染色体上的变异记录数量"
+                    description="各 Contig 的实际变异记录"
                     :data="stats.chromosomes"
                     interactive
                     @select="chartFilter('chrom', $event)"

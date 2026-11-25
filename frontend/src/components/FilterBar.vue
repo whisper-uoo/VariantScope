@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { Filters } from "../lib/domain";
 import { filterNames, typeNames } from "../lib/domain";
 import UiIcon from "./UiIcon.vue";
+const expanded = ref(true);
 const p = defineProps<{
   modelValue: Filters;
   applied: Filters;
@@ -34,11 +35,22 @@ const dirty = computed(
         <h2>筛选条件</h2>
         <span v-if="dirty" class="draft-label">有未应用的修改</span>
       </div>
-      <button class="text-button" @click="emit('reset')" :disabled="busy">
-        重置
-      </button>
+      <div class="filter-actions">
+        <button
+          class="text-button"
+          :aria-expanded="expanded"
+          @click="expanded = !expanded"
+        >
+          {{ expanded ? "收起条件" : "展开条件" }}</button><button
+          class="text-button"
+          @click="emit('reset')"
+          :disabled="busy"
+        >
+          重置
+        </button>
+      </div>
     </header>
-    <form class="filter-grid" @submit.prevent="emit('apply')">
+    <form v-show="expanded" class="filter-grid" @submit.prevent="emit('apply')">
       <label
         >染色体<input
           aria-label="染色体"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import type { Dataset } from "../lib/domain";
 import { number, dateTime } from "../lib/domain";
 import UiIcon from "../components/UiIcon.vue";
@@ -16,6 +16,10 @@ const emit = defineEmits<{
   reanalyze: [Dataset];
   remove: [Dataset];
 }>();
+const networkPercent = computed(() => {
+  const m = props.progress.match(/(\d+)%/);
+  return m ? Number(m[1]) : null;
+});
 const name = ref("");
 const reference = ref("");
 const file = ref<File>();
@@ -61,6 +65,22 @@ function submit() {
         <span class="subtle-label">VCF 4.x</span>
       </header>
       <form @submit.prevent="submit">
+        <div v-if="progress" class="import-progress" role="status">
+          <div>
+            <span>{{ progress }}</span
+            ><small>{{
+              networkPercent == null ? "解析与写入阶段" : "文件传输阶段"
+            }}</small>
+          </div>
+          <progress
+            v-if="networkPercent != null"
+            :value="networkPercent"
+            max="100"
+            aria-label="文件上传进度"
+          ></progress
+          ><progress v-else aria-label="解析与写入进行中"></progress>
+          <p>上传进度与解析阶段分别展示；等待服务返回完成结果。</p>
+        </div>
         <div
           class="file-drop"
           :class="{ drag, chosen: file }"

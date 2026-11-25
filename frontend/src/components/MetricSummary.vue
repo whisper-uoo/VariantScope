@@ -24,10 +24,10 @@ const indel = computed(
         >SNV <span class="muted">单核苷酸变异</span>
       </span>
       <div class="metric-value">{{ number(snv) }}</div>
-      <p>{{ percentage(snv, stats.total) }}<span>占全部记录</span></p>
+      <p>{{ percentage(snv, stats.total) }}<span>占当前范围</span></p>
     </div>
     <div class="metric-secondary">
-      <span class="metric-label">简单 InDel</span>
+      <span class="metric-label">插入与缺失</span>
       <div class="metric-value">{{ number(indel) }}</div>
       <p>{{ percentage(indel, stats.total) }}<span>插入与缺失</span></p>
     </div>
